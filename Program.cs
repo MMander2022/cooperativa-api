@@ -116,7 +116,7 @@ builder.Services.AddDbContext<CooperativaContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // 🌐 5. CORS PRO
-builder.Services.AddCors(options =>
+/*builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
@@ -126,7 +126,7 @@ builder.Services.AddCors(options =>
               .WithExposedHeaders("Authorization");
     });
 });
-
+*/
 var app = builder.Build();
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -149,7 +149,7 @@ app.UseStaticFiles(new StaticFileOptions
 // 🔹 6. MIDDLEWARE (EL ORDEN SAGRADO)
 app.UseRouting();
 app.UseHttpsRedirection();
-app.UseCors("AllowAll");
+//app.UseCors("AllowAll");
 app.UseCors("FrontendPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
