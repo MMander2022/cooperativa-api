@@ -149,12 +149,15 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/Resources"
 });
 // 🔹 6. MIDDLEWARE (EL ORDEN SAGRADO)
-app.UseRouting();
 app.UseHttpsRedirection();
-//app.UseCors("AllowAll");
+
+app.UseRouting();
+
 app.UseCors("FrontendPolicy");
+
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
 app.Run();
