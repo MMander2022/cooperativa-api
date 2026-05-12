@@ -17,13 +17,15 @@ namespace CooperativaApp.Controllers
         private readonly IUsuarioRepository _repo;
         private readonly IAuditoriaService _audit;
         private readonly CooperativaContext _context;
+        private readonly ILogger<AuthController> _logger;
 
-        public AuthController(IAuthService authService, IUsuarioRepository repo, IAuditoriaService audit, CooperativaContext context)
+        public AuthController(IAuthService authService, IUsuarioRepository repo, IAuditoriaService audit, CooperativaContext context, ILogger<AuthController> logger)
         {
             _authService = authService;
             _repo = repo;
             _audit = audit;
             _context = context;
+            _logger = logger;
         }
         [AllowAnonymous]
         [HttpPost("login")]
