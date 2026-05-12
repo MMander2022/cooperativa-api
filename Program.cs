@@ -95,12 +95,11 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(
                 "https://cooperativa.mandersystems.com",
-                "https://www.mandersystems.com",
-                "https://mandersystems.com"
+              "http://localhost:5173"
             )
             .AllowAnyHeader()
-            .AllowAnyMethod();
-            //.AllowCredentials();
+            .AllowAnyMethod()
+            .AllowCredentials();
         });
 });
 builder.Services.AddEndpointsApiExplorer();
@@ -156,11 +155,12 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/Resources"
 });
 // 🔹 6. MIDDLEWARE (EL ORDEN SAGRADO)
-app.UseHttpsRedirection();
+
 
 app.UseRouting();
 
 app.UseCors("FrontendPolicy");
+app.UseHttpsRedirection();
 
 app.UseAuthentication();
 app.UseAuthorization();
