@@ -95,10 +95,12 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(
                 "https://cooperativa.mandersystems.com",
-                "https://www.mandersystems.com"
+                "https://www.mandersystems.com",
+                "https://mandersystems.com"
             )
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .AllowCredentials();
         });
 });
 builder.Services.AddEndpointsApiExplorer();
