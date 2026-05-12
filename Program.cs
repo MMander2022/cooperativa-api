@@ -155,33 +155,14 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/Resources"
 });
 // 🔹 6. MIDDLEWARE (EL ORDEN SAGRADO)
-
+app.UseHttpsRedirection();  // ← va primero
 app.UseRouting();
-
-app.UseCors("FrontendPolicy");
-
-app.Use(async (context, next) =>
-{
-    if (context.Request.Method == "OPTIONS")
-    {
-        context.Response.Headers.Append("Access-Control-Allow-Origin", "https://cooperativa.mandersystems.com");
-        context.Response.Headers.Append("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-        context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        context.Response.StatusCode = 200;
-        await context.Response.CompleteAsync();
-        return;
-    }
-
-await next();
-
-});
-
-app.UseHttpsRedirection();
+app.UseCors("FrontendPolicy");  // ← ANTES de Auth
+// ❌ ELIMINA el middleware manual de OPTIONS — UseCors ya lo maneja
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-
 
 app.Run();
