@@ -101,6 +101,8 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
         });
 });
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection("SmtpSettings"));
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<ISmsService, SmsService>();
@@ -126,6 +128,8 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+app.UseSwagger();
+app.UseSwaggerUI();
 // 1. Definimos la ruta física
 var resourcesPath = Path.Combine(builder.Environment.ContentRootPath, "Resources");
 
