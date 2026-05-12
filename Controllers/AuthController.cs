@@ -18,14 +18,16 @@ namespace CooperativaApp.Controllers
         private readonly IAuditoriaService _audit;
         private readonly CooperativaContext _context;
         private readonly ILogger<AuthController> _logger;
+        private readonly IConfiguration _config;
 
-        public AuthController(IAuthService authService, IUsuarioRepository repo, IAuditoriaService audit, CooperativaContext context, ILogger<AuthController> logger)
+        public AuthController(IAuthService authService, IUsuarioRepository repo, IAuditoriaService audit, CooperativaContext context, ILogger<AuthController> logger, IConfiguration config)
         {
             _authService = authService;
             _repo = repo;
             _audit = audit;
             _context = context;
             _logger = logger;
+            _config = config;
         }
         [AllowAnonymous]
         [HttpPost("login")]
