@@ -211,6 +211,7 @@ namespace CooperativaApp.Controllers
                 .Where(m => m.Activo == true)
                 .ToListAsync());
         }
+        [HttpPost("RegistrarSocioTitanium")]
         public async Task<Socio> RegistrarSocioTitanium(Socio socio)
         {
             int adminId = GetCurrentUserId();
