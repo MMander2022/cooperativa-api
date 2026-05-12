@@ -99,8 +99,8 @@ builder.Services.AddCors(options =>
                 "https://mandersystems.com"
             )
             .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
+            .AllowAnyMethod();
+            //.AllowCredentials();
         });
 });
 builder.Services.AddEndpointsApiExplorer();
