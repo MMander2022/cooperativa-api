@@ -33,63 +33,81 @@ namespace CooperativaApp.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
-            // 1. Localización de identidad previa
+            if (dto is null || string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
+                return BadRequest(new { Message = "Datos de acceso incompletos." });
+
+            const string mensajeGenerico = "Credenciales incorrectas.";
+            int maxIntentos = _config.GetValue<int>("SecuritySettings:MaxIntentosFallidos", 3);
+            int delayMs = _config.GetValue<int>("SecuritySettings:LoginDelayMs", 300);
+            string ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
+
             var usuario = await _context.Usuarios
                 .FirstOrDefaultAsync(u => u.Username == dto.Username);
 
             if (usuario == null)
-                return BadRequest(new { Message = "El usuario no se encuentra en el radar del sistema." });
+            {
+                await Task.Delay(delayMs);
+                _logger.LogWarning("Intento de login con usuario inexistente: {Username} desde {IP}", dto.Username, ip);
+                return BadRequest(new { Message = mensajeGenerico });
+            }
 
-            // 2. Verificación de sellado (Bloqueo)
             if (usuario.IsLocked)
-                return BadRequest(new { Message = "Cuenta bloqueada por seguridad. Contacte al administrador del núcleo." });
+            {
+                _logger.LogWarning("Intento de acceso a cuenta bloqueada: {Username} desde {IP}", dto.Username, ip);
+                return BadRequest(new { Message = "Cuenta bloqueada. Contacte al administrador." });
+            }
 
             try
             {
-                // 3. 🚀 LLAMADA AL MOTOR UNIFICADO
                 var response = await _authService.Authenticate(dto.Username, dto.Password);
 
-                // 4. ÉXITO: Resetear telemetría de fallos
-                if (usuario.IntentosFallidos > 0)
+                usuario.IntentosFallidos = 0;
+                usuario.UltimoLogin = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                await _audit.RegistrarLog(
+                    usuario.IdUsuario,
+                    "LOGIN_SUCCESS",
+                    $"Inicio de sesión exitoso para {dto.Username}",
+                    ip);
+
+                _logger.LogInformation("Login exitoso: {Username} desde {IP}", dto.Username, ip);
+                return Ok(response);
+            }
+            catch (Exception ex) when (ex.Message.Contains("incorrectas") || ex.Message.Contains("detectado"))
+            {
+                usuario.IntentosFallidos += 1;
+                int restantes = maxIntentos - usuario.IntentosFallidos;
+
+                if (usuario.IntentosFallidos >= maxIntentos)
                 {
-                    usuario.IntentosFallidos = 0;
+                    usuario.IsLocked = true;
                     await _context.SaveChangesAsync();
+
+                    await _audit.RegistrarLog(
+                        usuario.IdUsuario,
+                        "ACCOUNT_LOCKED",
+                        $"Cuenta bloqueada tras {maxIntentos} intentos fallidos",
+                        ip);
+
+                    _logger.LogWarning("Cuenta bloqueada: {Username} desde {IP}", dto.Username, ip);
+                    return BadRequest(new { Message = "Cuenta bloqueada. Contacte al administrador." });
                 }
 
-                return Ok(response);
+                await _context.SaveChangesAsync();
+
+                await _audit.RegistrarLog(
+                    usuario.IdUsuario,
+                    "LOGIN_FAILED",
+                    $"Intento fallido {usuario.IntentosFallidos}/{maxIntentos}",
+                    ip);
+
+                return BadRequest(new { Message = $"{mensajeGenerico} Intentos restantes: {restantes}." });
             }
             catch (Exception ex)
             {
-                // 🛡️ LÓGICA DE INTENTOS FALLIDOS (Protocolo de Bloqueo)
-                if (ex.Message.Contains("incorrectas") || ex.Message.Contains("detectado"))
-                {
-                    usuario.IntentosFallidos += 1;
-                    int restantes = 3 - usuario.IntentosFallidos;
-
-                    try
-                    {
-                        if (usuario.IntentosFallidos >= 3)
-                        {
-                            usuario.IsLocked = true;
-                            await _context.SaveChangesAsync();
-                            return BadRequest(new { Message = "Acceso denegado. Cuenta bloqueada tras 3 intentos fallidos." });
-                        }
-
-                        await _context.SaveChangesAsync();
-                        return BadRequest(new { Message = $"Contraseña incorrecta. Le quedan {restantes} intentos antes del bloqueo." });
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        // 💎 MANIOBRA DE EMERGENCIA: Re-inicializar ConnectionString si EF lo perdió
-                        _context.Database.GetDbConnection().ConnectionString = _context.Database.GetConnectionString();
-                        await _context.SaveChangesAsync();
-
-                        return BadRequest(new { Message = $"Contraseña incorrecta. Le quedan {restantes} intentos." });
-                    }
-                }
-
-                // Error técnico no controlado (Falla de motor o DB)
-                return BadRequest(new { Message = $"Falla en el núcleo: {ex.Message}" });
+                _logger.LogError(ex, "Error técnico en login para {Username}", dto.Username);
+                return StatusCode(500, new { Message = "Error interno. Intente más tarde." });
             }
         }
         [AllowAnonymous]
