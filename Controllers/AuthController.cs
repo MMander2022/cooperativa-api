@@ -25,6 +25,7 @@ namespace CooperativaApp.Controllers
             _audit = audit;
             _context = context;
         }
+        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
@@ -87,6 +88,7 @@ namespace CooperativaApp.Controllers
                 return BadRequest(new { Message = $"Falla en el núcleo: {ex.Message}" });
             }
         }
+        [AllowAnonymous]
         [HttpPost("registrar")]
         public async Task<IActionResult> Registrar(UsuarioRegistroDto dto)
         {
