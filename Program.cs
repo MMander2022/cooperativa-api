@@ -130,6 +130,13 @@ builder.Services.AddDbContext<CooperativaContext>(options =>
 });
 */
 var app = builder.Build();
+app.UseDeveloperExceptionPage();
+app.Use(async (context, next) =>
+{
+    Console.WriteLine($"➡️ {context.Request.Method} {context.Request.Path}");
+    await next();
+    Console.WriteLine($"⬅️ {context.Response.StatusCode}");
+});
 app.UseSwagger();
 app.UseSwaggerUI();
 // 1. Definimos la ruta física
