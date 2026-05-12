@@ -6,7 +6,6 @@ using CooperativaApp.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace CooperativaApp.Controllers
 {
@@ -18,142 +17,95 @@ namespace CooperativaApp.Controllers
         private readonly IUsuarioRepository _repo;
         private readonly IAuditoriaService _audit;
         private readonly CooperativaContext _context;
-        private readonly ILogger<AuthController> _logger;
-        private readonly IConfiguration _config;
 
-        public AuthController(
-            IAuthService authService,
-            IUsuarioRepository repo,
-            IAuditoriaService audit,
-            CooperativaContext context,
-            ILogger<AuthController> logger,
-            IConfiguration config)
+        public AuthController(IAuthService authService, IUsuarioRepository repo, IAuditoriaService audit, CooperativaContext context)
         {
             _authService = authService;
             _repo = repo;
             _audit = audit;
             _context = context;
-            _logger = logger;
-            _config = config;
         }
-
-        // ─────────────────────────────────────────
-        // POST api/auth/login
-        // ─────────────────────────────────────────
         [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
-            if (dto is null || string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
-                return BadRequest(new { Message = "Datos de acceso incompletos." });
-
-            const string mensajeGenerico = "Credenciales incorrectas.";
-            int maxIntentos = _config.GetValue<int>("SecuritySettings:MaxIntentosFallidos", 3);
-            int delayMs = _config.GetValue<int>("SecuritySettings:LoginDelayMs", 300);
-            string ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
-
+            // 1. Localización de identidad previa
             var usuario = await _context.Usuarios
                 .FirstOrDefaultAsync(u => u.Username == dto.Username);
 
-            // Anti timing-attack: mismo tiempo de respuesta aunque el usuario no exista
             if (usuario == null)
-            {
-                await Task.Delay(delayMs);
-                _logger.LogWarning("Intento de login con usuario inexistente: {Username} desde {IP}", dto.Username, ip);
-                return BadRequest(new { Message = mensajeGenerico });
-            }
+                return BadRequest(new { Message = "El usuario no se encuentra en el radar del sistema." });
 
+            // 2. Verificación de sellado (Bloqueo)
             if (usuario.IsLocked)
-            {
-                _logger.LogWarning("Intento de acceso a cuenta bloqueada: {Username} desde {IP}", dto.Username, ip);
-                return BadRequest(new { Message = "Cuenta bloqueada. Contacte al administrador." });
-            }
+                return BadRequest(new { Message = "Cuenta bloqueada por seguridad. Contacte al administrador del núcleo." });
 
             try
             {
+                // 3. 🚀 LLAMADA AL MOTOR UNIFICADO
                 var response = await _authService.Authenticate(dto.Username, dto.Password);
 
-                // Login exitoso — resetear contadores
-                usuario.IntentosFallidos = 0;
-                usuario.UltimoLogin = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
-
-                await _audit.RegistrarLog(
-                    usuario.IdUsuario,
-                    "LOGIN_SUCCESS",
-                    $"Inicio de sesión exitoso para {dto.Username}",
-                    ip);
-
-                _logger.LogInformation("Login exitoso: {Username} desde {IP}", dto.Username, ip);
-                return Ok(response);
-            }
-            catch (Exception ex) when (ex.Message.Contains("incorrectas") || ex.Message.Contains("detectado"))
-            {
-                usuario.IntentosFallidos += 1;
-                int restantes = maxIntentos - usuario.IntentosFallidos;
-
-                if (usuario.IntentosFallidos >= maxIntentos)
+                // 4. ÉXITO: Resetear telemetría de fallos
+                if (usuario.IntentosFallidos > 0)
                 {
-                    usuario.IsLocked = true;
+                    usuario.IntentosFallidos = 0;
                     await _context.SaveChangesAsync();
-
-                    await _audit.RegistrarLog(
-                        usuario.IdUsuario,
-                        "ACCOUNT_LOCKED",
-                        $"Cuenta bloqueada tras {maxIntentos} intentos fallidos",
-                        ip);
-
-                    _logger.LogWarning("Cuenta bloqueada: {Username} desde {IP}", dto.Username, ip);
-                    return BadRequest(new { Message = "Cuenta bloqueada. Contacte al administrador." });
                 }
 
-                await _context.SaveChangesAsync();
-
-                await _audit.RegistrarLog(
-                    usuario.IdUsuario,
-                    "LOGIN_FAILED",
-                    $"Intento fallido {usuario.IntentosFallidos}/{maxIntentos}",
-                    ip);
-
-                return BadRequest(new { Message = $"{mensajeGenerico} Intentos restantes: {restantes}." });
+                return Ok(response);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error técnico en login para {Username}", dto.Username);
-                return StatusCode(500, new { Message = "Error interno. Intente más tarde." });
+                // 🛡️ LÓGICA DE INTENTOS FALLIDOS (Protocolo de Bloqueo)
+                if (ex.Message.Contains("incorrectas") || ex.Message.Contains("detectado"))
+                {
+                    usuario.IntentosFallidos += 1;
+                    int restantes = 3 - usuario.IntentosFallidos;
+
+                    try
+                    {
+                        if (usuario.IntentosFallidos >= 3)
+                        {
+                            usuario.IsLocked = true;
+                            await _context.SaveChangesAsync();
+                            return BadRequest(new { Message = "Acceso denegado. Cuenta bloqueada tras 3 intentos fallidos." });
+                        }
+
+                        await _context.SaveChangesAsync();
+                        return BadRequest(new { Message = $"Contraseña incorrecta. Le quedan {restantes} intentos antes del bloqueo." });
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // 💎 MANIOBRA DE EMERGENCIA: Re-inicializar ConnectionString si EF lo perdió
+                        _context.Database.GetDbConnection().ConnectionString = _context.Database.GetConnectionString();
+                        await _context.SaveChangesAsync();
+
+                        return BadRequest(new { Message = $"Contraseña incorrecta. Le quedan {restantes} intentos." });
+                    }
+                }
+
+                // Error técnico no controlado (Falla de motor o DB)
+                return BadRequest(new { Message = $"Falla en el núcleo: {ex.Message}" });
             }
         }
-
-        // ─────────────────────────────────────────
-        // POST api/auth/registrar
-        // ─────────────────────────────────────────
         [AllowAnonymous]
         [HttpPost("registrar")]
-        public async Task<IActionResult> Registrar([FromBody] UsuarioRegistroDto dto)
+        public async Task<IActionResult> Registrar(UsuarioRegistroDto dto)
         {
-            if (dto is null)
-                return BadRequest(new { Message = "Datos de registro incompletos." });
-
-            if (string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
-                return BadRequest(new { Message = "Usuario y contraseña son obligatorios." });
-
-            string ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
-
-            // Verificar duplicado sin revelar si existe (mismo mensaje)
             if (await _context.Usuarios.AnyAsync(u => u.Username == dto.Username))
-                return Conflict(new { Message = "No se pudo completar el registro. Verifique los datos." });
+                return BadRequest(new { Message = "El nombre de usuario ya está en uso." });
 
             var (hash, salt) = await _authService.HashearPassword(dto.Password);
 
             var nuevoUsuario = new Usuario
             {
-                Username = dto.Username.Trim(),
+                Username = dto.Username,
                 PasswordHash = hash,
                 PasswordSalt = salt,
-                NombreCompleto = dto.NombreCompleto?.Trim(),
-                Email = dto.Email?.Trim().ToLowerInvariant(),
-                IdPerfil = dto.IdPerfil,
+                NombreCompleto = dto.NombreCompleto,
                 RequiereCambioPassword = true,
+                Email = dto.Email,
+                IdPerfil = dto.IdPerfil,
                 Estado = true,
                 IntentosFallidos = 0,
                 IsLocked = false
@@ -162,57 +114,42 @@ namespace CooperativaApp.Controllers
             _context.Usuarios.Add(nuevoUsuario);
             await _context.SaveChangesAsync();
 
-            await _audit.RegistrarLog(
-                nuevoUsuario.IdUsuario,
-                "USER_CREATED",
-                $"Usuario {dto.Username} registrado",
-                ip);
+            await _audit.RegistrarLog(nuevoUsuario.IdUsuario, "USER_CREATED", $"Usuario {dto.Username} creado", Request.HttpContext.Connection.RemoteIpAddress?.ToString());
 
-            _logger.LogInformation("Nuevo usuario registrado: {Username}", dto.Username);
             return Ok(new { Message = "Usuario creado con éxito. Ya puede iniciar sesión." });
         }
-
-        // ─────────────────────────────────────────
-        // POST api/auth/cambiar-password-obligatorio
-        // ─────────────────────────────────────────
-        [AllowAnonymous]
         [HttpPost("cambiar-password-obligatorio")]
+        [AllowAnonymous] // O [Authorize] si prefieres validar el token temporal
         public async Task<IActionResult> CambiarPasswordObligatorio([FromBody] ResetPasswordDTO dto)
         {
-            if (dto is null || dto.IdUsuario <= 0 || string.IsNullOrWhiteSpace(dto.NuevaPassword))
-                return BadRequest(new { Message = "Datos incompletos para el cambio de contraseña." });
+            try
+            {
+                // 1. Buscar al usuario en la base de datos
+                var usuario = await _context.Usuarios.FindAsync(dto.IdUsuario);
 
-            int minimaLongitud = _config.GetValue<int>("SecuritySettings:PasswordMinLength", 8);
+                if (usuario == null)
+                    return NotFound("Usuario no detectado en el sistema.");
 
-            if (dto.NuevaPassword.Length < minimaLongitud)
-                return BadRequest(new { Message = $"La contraseña debe tener al menos {minimaLongitud} caracteres." });
+                // 2. Generar Nuevo Hash y Salt Titanium
+                // Usamos el mismo servicio que ya configuramos antes
+                var (nuevoHash, nuevoSalt) = await _authService.HashearPassword(dto.NuevaPassword);
 
-            string ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
+                // 3. Actualizar Credenciales y Apagar el Flag de Cambio
+                usuario.PasswordHash = nuevoHash;
+                usuario.PasswordSalt = nuevoSalt;
+                usuario.RequiereCambioPassword = false; // 🔓 ¡Acceso Total Activado!
+                usuario.UltimoLogin = DateTime.Now;
 
-            var usuario = await _context.Usuarios.FindAsync(dto.IdUsuario);
-            if (usuario == null)
-                return NotFound(new { Message = "Usuario no encontrado." });
+                // 4. Guardar Cambios
+                _context.Usuarios.Update(usuario);
+                await _context.SaveChangesAsync();
 
-            if (!usuario.RequiereCambioPassword)
-                return BadRequest(new { Message = "Este usuario no tiene un cambio de contraseña pendiente." });
-
-            var (nuevoHash, nuevoSalt) = await _authService.HashearPassword(dto.NuevaPassword);
-
-            usuario.PasswordHash = nuevoHash;
-            usuario.PasswordSalt = nuevoSalt;
-            usuario.RequiereCambioPassword = false;
-            usuario.UltimoLogin = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-
-            await _audit.RegistrarLog(
-                usuario.IdUsuario,
-                "PASSWORD_CHANGED",
-                "Cambio de contraseña obligatorio completado",
-                ip);
-
-            _logger.LogInformation("Password cambiado para usuario ID {IdUsuario}", dto.IdUsuario);
-            return Ok(new { Message = "Contraseña actualizada con éxito." });
+                return Ok("Contraseña actualizada con éxito. Protocolo Titanium completado.");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Fallo en la actualización: {ex.Message}");
+            }
         }
     }
 }
