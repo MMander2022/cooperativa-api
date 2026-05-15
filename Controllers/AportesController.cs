@@ -1,4 +1,5 @@
 ﻿using CooperativaApp.Data;
+using CooperativaApp.DTOS;
 using CooperativaApp.Interfaces;
 using CooperativaApp.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -43,49 +44,50 @@ namespace CooperativaApp.Controllers
 
             return Ok(new { message = result.Message });
         }
-
-
         [HttpGet("configuracion-actual")]
-
         public async Task<IActionResult> GetConfig()
-
         {
-
             try
-
             {
+                var config = await _context.ConfigAportes
+                    .AsNoTracking()
+                    .OrderByDescending(x => x.FechaInicio)
+                    .FirstOrDefaultAsync(x => x.Estado);
 
-                // Llamamos al método que busca el registro con Estado = 1 y FechaFin = null
-
-                var config = await _aporteService.GetConfiguracionVigenteAsync();
-
-
-
-                if (config == null) return NotFound("No hay configuración de acciones vigente.");
-
-
+                if (config == null)
+                {
+                    return Ok(new
+                    {
+                        existe = false
+                    });
+                }
 
                 return Ok(new
-
                 {
+                    existe = true,
 
                     idConfig = config.IdConfig,
 
-                    valorAccion = config.ValorAccion // O ValorAccion, según nombraste el campo
+                    valorAccion = config.ValorAccion,
 
+                    fechaInicio = config.FechaInicio,
+
+                    fechaFin = config.FechaFin,
+
+                    estado = config.Estado,
+
+                    fechaRegistro = config.FechaRegistro
                 });
-
             }
-
             catch (Exception ex)
-
             {
-
-                return BadRequest(ex.Message);
-
+                return StatusCode(500, new
+                {
+                    message = ex.Message
+                });
             }
-
         }
+
         [HttpGet("mis-aportes")]
         public async Task<IActionResult> GetMisAportes()
         {
@@ -472,8 +474,106 @@ namespace CooperativaApp.Controllers
             }
 
         }
+        [HttpPost("actualizar-config")]
+        public async Task<IActionResult> ActualizarConfiguracion(
+    [FromBody] ConfigAporteRequestDTO request)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
+            try
+            {
+                // 🛡️ VALIDACIONES ENTERPRISE
 
+                if (request.ValorAccion <= 0)
+                {
+                    return BadRequest(new
+                    {
+                        message = "El valor de acción debe ser mayor a cero."
+                    });
+                }
+
+                if (request.FechaInicio == DateTime.MinValue)
+                {
+                    return BadRequest(new
+                    {
+                        message = "Debe ingresar fecha inicio."
+                    });
+                }
+
+                if (request.FechaFin.HasValue &&
+                    request.FechaFin.Value < request.FechaInicio)
+                {
+                    return BadRequest(new
+                    {
+                        message = "La fecha fin no puede ser menor a la fecha inicio."
+                    });
+                }
+
+                // 🔍 BUSCAR CONFIGURACIÓN VIGENTE
+                var vigente = await _context.ConfigAportes
+                    .FirstOrDefaultAsync(x =>
+                        x.Estado &&
+                        x.FechaFin == null);
+
+                // 🚀 CERRAR CONFIGURACIÓN ANTERIOR
+                if (vigente != null)
+                {
+                    vigente.Estado = false;
+
+                    vigente.FechaFin =
+                        request.FechaInicio.AddDays(-1);
+
+                    vigente.FechaModificacion = DateTime.Now;
+
+                    vigente.IdUsuarioModificacion = int.Parse(
+                        User.FindFirst("IdUsuario")?.Value ?? "0"
+                    );
+                }
+
+                // 👤 USUARIO LOGUEADO
+                var idUsuario = int.Parse(
+                    User.FindFirst("IdUsuario")?.Value ?? "0"
+                );
+
+                // 🚀 NUEVA CONFIGURACIÓN
+                var nueva = new ConfigAporte
+                {
+                    ValorAccion = request.ValorAccion,
+
+                    FechaInicio = request.FechaInicio,
+
+                    FechaFin = request.FechaFin,
+
+                    Estado = request.Estado,
+
+                    FechaRegistro = DateTime.Now,
+
+                    IdUsuarioRegistro = idUsuario
+                };
+
+                _context.ConfigAportes.Add(nueva);
+
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Nueva vigencia configurada correctamente."
+                });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = ex.Message
+                });
+            }
+        }
         // Se mantienen intactos los métodos Aprobar, Rechazar, GetConfig y GetPendientes...
     }
 }

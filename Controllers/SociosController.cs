@@ -270,7 +270,7 @@ namespace CooperativaApp.Controllers
 
                     // 🛰️ DISPARO DE NOTIFICACIONES TITANIUM (Post-Commit)
                     // Construimos el mensaje de bienvenida
-                    string mensajeBienvenida = $@"🌟 ¡Bienvenido a la Cooperativa, {socio.Nombres}! 
+                    string mensajeBienvenida = $@"🌟 ¡Bienvenido a UNIMAS, {socio.Nombres}! 
                     Tu cuenta ha sido creada con éxito.
                     👤 Usuario: {socio.DNI}
                     🔑 Clave Temporal: {passwordTemporal}
@@ -282,7 +282,7 @@ namespace CooperativaApp.Controllers
                     _ = Task.Run(async () => {
                         try
                         {
-                            await _emailService.SendEmailAsync(socio.correo, "Bienvenida Cooperativa - Activación de Cuenta", mensajeBienvenida);
+                            await _emailService.SendEmailAsync(socio.correo, "Bienvenida UNIMAS - Activación de Cuenta", mensajeBienvenida);
                             await _whatsappService.SendWhatsAppAsync(socio.Telefono, mensajeBienvenida);
                             await _smsService.SendSmsAsync(socio.Telefono, $"Bienvenido {socio.Nombres}. Tu clave temporal es: {passwordTemporal}");
                         }

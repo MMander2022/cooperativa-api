@@ -112,22 +112,30 @@ namespace CooperativaApp.Controllers
         }
         [AllowAnonymous]
         [HttpPost("registrar")]
-        public async Task<IActionResult> Registrar(UsuarioRegistroDto dto)
+        public async Task<IActionResult> Registrar([FromBody] UsuarioRegistroDto dto)
         {
+            if (dto is null)
+                return BadRequest(new { Message = "Datos de registro incompletos." });
+
+            if (string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
+                return BadRequest(new { Message = "Usuario y contraseña son obligatorios." });
+
+            string ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
+
             if (await _context.Usuarios.AnyAsync(u => u.Username == dto.Username))
-                return BadRequest(new { Message = "El nombre de usuario ya está en uso." });
+                return Conflict(new { Message = "No se pudo completar el registro. Verifique los datos." });
 
             var (hash, salt) = await _authService.HashearPassword(dto.Password);
 
             var nuevoUsuario = new Usuario
             {
-                Username = dto.Username,
+                Username = dto.Username.Trim(),
                 PasswordHash = hash,
                 PasswordSalt = salt,
-                NombreCompleto = dto.NombreCompleto,
-                RequiereCambioPassword = true,
-                Email = dto.Email,
+                NombreCompleto = dto.NombreCompleto?.Trim(),
+                Email = dto.Email?.Trim().ToLowerInvariant(),
                 IdPerfil = dto.IdPerfil,
+                RequiereCambioPassword = true,
                 Estado = true,
                 IntentosFallidos = 0,
                 IsLocked = false
@@ -136,42 +144,53 @@ namespace CooperativaApp.Controllers
             _context.Usuarios.Add(nuevoUsuario);
             await _context.SaveChangesAsync();
 
-            await _audit.RegistrarLog(nuevoUsuario.IdUsuario, "USER_CREATED", $"Usuario {dto.Username} creado", Request.HttpContext.Connection.RemoteIpAddress?.ToString());
+            await _audit.RegistrarLog(
+                nuevoUsuario.IdUsuario,
+                "USER_CREATED",
+                $"Usuario {dto.Username} registrado",
+                ip);
 
+            _logger.LogInformation("Nuevo usuario registrado: {Username}", dto.Username);
             return Ok(new { Message = "Usuario creado con éxito. Ya puede iniciar sesión." });
         }
+        [AllowAnonymous]
         [HttpPost("cambiar-password-obligatorio")]
-        [AllowAnonymous] // O [Authorize] si prefieres validar el token temporal
         public async Task<IActionResult> CambiarPasswordObligatorio([FromBody] ResetPasswordDTO dto)
         {
-            try
-            {
-                // 1. Buscar al usuario en la base de datos
-                var usuario = await _context.Usuarios.FindAsync(dto.IdUsuario);
+            if (dto is null || dto.IdUsuario <= 0 || string.IsNullOrWhiteSpace(dto.NuevaPassword))
+                return BadRequest(new { Message = "Datos incompletos para el cambio de contraseña." });
 
-                if (usuario == null)
-                    return NotFound("Usuario no detectado en el sistema.");
+            int minimaLongitud = _config.GetValue<int>("SecuritySettings:PasswordMinLength", 8);
 
-                // 2. Generar Nuevo Hash y Salt Titanium
-                // Usamos el mismo servicio que ya configuramos antes
-                var (nuevoHash, nuevoSalt) = await _authService.HashearPassword(dto.NuevaPassword);
+            if (dto.NuevaPassword.Length < minimaLongitud)
+                return BadRequest(new { Message = $"La contraseña debe tener al menos {minimaLongitud} caracteres." });
 
-                // 3. Actualizar Credenciales y Apagar el Flag de Cambio
-                usuario.PasswordHash = nuevoHash;
-                usuario.PasswordSalt = nuevoSalt;
-                usuario.RequiereCambioPassword = false; // 🔓 ¡Acceso Total Activado!
-                usuario.UltimoLogin = DateTime.Now;
+            string ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
 
-                // 4. Guardar Cambios
-                _context.Usuarios.Update(usuario);
-                await _context.SaveChangesAsync();
+            var usuario = await _context.Usuarios.FindAsync(dto.IdUsuario);
+            if (usuario == null)
+                return NotFound(new { Message = "Usuario no encontrado." });
 
-                return Ok("Contraseña actualizada con éxito. Protocolo Titanium completado.");
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Fallo en la actualización: {ex.Message}");
-            }
+            if (!usuario.RequiereCambioPassword)
+                return BadRequest(new { Message = "Este usuario no tiene un cambio de contraseña pendiente." });
+
+            var (nuevoHash, nuevoSalt) = await _authService.HashearPassword(dto.NuevaPassword);
+
+            usuario.PasswordHash = nuevoHash;
+            usuario.PasswordSalt = nuevoSalt;
+            usuario.RequiereCambioPassword = false;
+            usuario.UltimoLogin = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            await _audit.RegistrarLog(
+                usuario.IdUsuario,
+                "PASSWORD_CHANGED",
+                "Cambio de contraseña obligatorio completado",
+                ip);
+
+            _logger.LogInformation("Password cambiado para usuario ID {IdUsuario}", dto.IdUsuario);
+            return Ok(new { Message = "Contraseña actualizada con éxito." });
         }
     }
 }

@@ -36,7 +36,7 @@ namespace CooperativaApp.Services
             {
                 HtmlBody = $@"
                     <div style='font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px; border-radius: 10px;'>
-                        <h2 style='color: #004a99;'>Cooperativa Titanium</h2>
+                        <h2 style='color: #004a99;'>UNIMAS</h2>
                         <hr/>
                         <p style='font-size: 1.1em;'>{message.Replace("\n", "<br/>")}</p>
                         <br/>

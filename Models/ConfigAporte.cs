@@ -15,6 +15,8 @@ namespace CooperativaApp.Models
 
         // Auditoría
         public DateTime FechaRegistro { get; set; } = DateTime.Now;
-        public int IdUsuarioRegistro { get; set; }
+        public DateTime? FechaModificacion { get; set; } = DateTime.Now;
+        public int? IdUsuarioRegistro { get; set; }
+        public int? IdUsuarioModificacion { get; set; }
     }
 }
