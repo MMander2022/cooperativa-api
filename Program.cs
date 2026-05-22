@@ -96,7 +96,7 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(
                 "https://cooperativa.mandersystems.com",
-              "http://localhost:5173"
+              "http://localhost:5174"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()

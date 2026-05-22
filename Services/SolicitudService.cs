@@ -260,66 +260,150 @@ namespace CooperativaApp.Services
         private void GenerarFrances(Credito credito)
         {
             decimal P = credito.Monto;
-            decimal i = (credito.TasaInteres / 100) / 12; // Tasa Mensualizada
+            decimal tea = credito.TasaInteres / 100; // TEA como decimal, ej: 0.24
             int n = credito.PlazoMeses;
+            int diasPorCuota = 30; // días entre cuotas (configurable)
+            int baseCalculo = 360; // base comercial Peru — cambiar a 365 si aplica
 
-            double factor = Math.Pow(1 + (double)i, n);
-            decimal cuotaFija = Math.Round(P * (i * (decimal)factor) / ((decimal)factor - 1), 2);
+            // ── PASO 1: Días acumulados por cuota ──
+            int[] diasAcumulados = new int[n];
+            for (int k = 0; k < n; k++)
+                diasAcumulados[k] = (k + 1) * diasPorCuota;
 
+            // ── PASO 2: Factor de descuento por cuota ──
+            // Factor_i = 1 / (1 + TEA) ^ (diasAcumulados_i / baseCalculo)
+            double[] factores = new double[n];
+            for (int k = 0; k < n; k++)
+                factores[k] = 1.0 / Math.Pow(1.0 + (double)tea, (double)diasAcumulados[k] / baseCalculo);
+
+            // ── PASO 3: Cuota fija = Capital / Suma de factores ──
+            double sumaFactores = 0;
+            foreach (var f in factores) sumaFactores += f;
+            decimal cuotaFija = Math.Round(P / (decimal)sumaFactores, 2);
+
+            // ── PASO 4: Generar cronograma ──
             decimal saldoRestante = P;
+
             for (int k = 1; k <= n; k++)
             {
-                decimal interes = Math.Round(saldoRestante * i, 2);
-                decimal capital = (k == n) ? saldoRestante : (cuotaFija - interes);
+                // Días del período actual
+                int diasPeriodo = diasPorCuota; // siempre 30 si cuotas son mensuales fijas
 
-                saldoRestante -= capital;
+                // Tasa del período: (1 + TEA)^(díasPeriodo/base) - 1
+                decimal tasaPeriodo = (decimal)(Math.Pow(1.0 + (double)tea, (double)diasPeriodo / baseCalculo) - 1.0);
 
-                _context.Cuotas.Add(CrearCuotaBase(credito.IdCredito, k, capital, interes, saldoRestante));
+                decimal interes = Math.Round(saldoRestante * tasaPeriodo, 2);
+
+                decimal capital;
+                if (k == n)
+                {
+                    // Última cuota: liquidar saldo exacto para evitar diferencias por redondeo
+                    capital = Math.Round(saldoRestante, 2);
+                    saldoRestante = 0;
+                }
+                else
+                {
+                    capital = Math.Round(cuotaFija - interes, 2);
+                    saldoRestante = Math.Round(saldoRestante - capital, 2);
+                }
+
+                _context.Cuotas.Add(CrearCuotaBase(
+                    credito.IdCredito,
+                    k,
+                    Math.Abs(capital),
+                    Math.Abs(interes),
+                    Math.Max(0, saldoRestante)
+                ));
             }
         }
-
         private void GenerarAleman(Credito credito)
         {
             decimal P = credito.Monto;
-            decimal i = (credito.TasaInteres / 100) / 12;
+            decimal tea = credito.TasaInteres / 100;
             int n = credito.PlazoMeses;
+            int diasPorCuota = 30;
+            int baseCalculo = 360;
 
+            // Capital fijo por cuota — en alemán siempre es P/n
             decimal capitalFijo = Math.Round(P / n, 2);
             decimal saldoRestante = P;
 
             for (int k = 1; k <= n; k++)
             {
-                decimal interes = Math.Round(saldoRestante * i, 2);
-                decimal capital = (k == n) ? saldoRestante : capitalFijo;
-                decimal cuotaMonto = capital + interes;
+                // Tasa efectiva del período
+                decimal tasaPeriodo = (decimal)(Math.Pow(1.0 + (double)tea, (double)diasPorCuota / baseCalculo) - 1.0);
 
-                saldoRestante -= capital;
+                decimal interes = Math.Round(saldoRestante * tasaPeriodo, 2);
 
-                _context.Cuotas.Add(CrearCuotaBase(credito.IdCredito, k, capital, interes, saldoRestante, cuotaMonto));
+                decimal capital;
+                if (k == n)
+                {
+                    // Última cuota: liquidar saldo exacto
+                    capital = Math.Round(saldoRestante, 2);
+                    saldoRestante = 0;
+                }
+                else
+                {
+                    capital = capitalFijo;
+                    saldoRestante = Math.Round(saldoRestante - capital, 2);
+                }
+
+                decimal cuotaMonto = Math.Round(Math.Abs(capital) + Math.Abs(interes), 2);
+
+                _context.Cuotas.Add(CrearCuotaBase(
+                    credito.IdCredito,
+                    k,
+                    Math.Abs(capital),
+                    Math.Abs(interes),
+                    Math.Max(0, saldoRestante),
+                    cuotaMonto
+                ));
             }
         }
 
         private void GenerarInteresSimple(Credito credito)
         {
             decimal P = credito.Monto;
-            decimal i = (credito.TasaInteres / 100) / 12;
+            decimal tea = credito.TasaInteres / 100;
             int n = credito.PlazoMeses;
+            int diasPorCuota = 30;
+            int baseCalculo = 360;
 
-            decimal interesMensual = Math.Round(P * i, 2);
+            // Tasa efectiva del período (igual para todas las cuotas)
+            decimal tasaPeriodo = (decimal)(Math.Pow(1.0 + (double)tea, (double)diasPorCuota / baseCalculo) - 1.0);
+
+            // Interés simple: se calcula siempre sobre el capital original (no sobre saldo)
+            decimal interesFijo = Math.Round(P * tasaPeriodo, 2);
+
             decimal saldoRestante = P;
 
             for (int k = 1; k <= n; k++)
             {
-                // En Interés Simple (Bullet), solo se paga interés y el capital va al final
-                decimal capital = (k == n) ? P : 0;
-                decimal cuotaMonto = capital + interesMensual;
+                // Bullet: capital solo en última cuota, resto paga solo interés
+                decimal capital;
+                if (k == n)
+                {
+                    capital = Math.Round(saldoRestante, 2);
+                    saldoRestante = 0;
+                }
+                else
+                {
+                    capital = 0;
+                    // saldoRestante no cambia hasta la última cuota
+                }
 
-                if (k == n) saldoRestante = 0;
+                decimal cuotaMonto = Math.Round(Math.Abs(capital) + interesFijo, 2);
 
-                _context.Cuotas.Add(CrearCuotaBase(credito.IdCredito, k, capital, interesMensual, saldoRestante, cuotaMonto));
+                _context.Cuotas.Add(CrearCuotaBase(
+                    credito.IdCredito,
+                    k,
+                    Math.Abs(capital),
+                    interesFijo,
+                    Math.Max(0, saldoRestante),
+                    cuotaMonto
+                ));
             }
         }
-
         // 🛠️ Helper para evitar duplicidad de código (DRY)
         private Cuota CrearCuotaBase(int idCredito, int num, decimal cap, decimal intrs, decimal saldo, decimal? montoManual = null)
         {
