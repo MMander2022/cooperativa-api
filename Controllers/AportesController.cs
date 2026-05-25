@@ -210,27 +210,47 @@ namespace CooperativaApp.Controllers
             }
         }
         [HttpPut("{id}")]
-        public async Task<IActionResult> ActualizarAporte(int id, [FromBody] AporteSocio aporteData)
+        public async Task<IActionResult> ActualizarAporte(int id, [FromForm] AporteRequestDto dto)
         {
             var aporte = await _context.AportesSocios.FindAsync(id);
             if (aporte == null) return NotFound(new { message = "Aporte no encontrado." });
 
-            // 🛡️ REGLA TITANIUM: No editar si ya está aprobado
             if (aporte.EstadoPago == 'A')
                 return BadRequest(new { message = "No se puede editar un aporte ya aprobado por tesorería." });
 
-            aporte.MontoPagado = aporteData.MontoPagado;
-            aporte.CantidadAcciones = aporteData.CantidadAcciones;
-            aporte.MesAportado = aporteData.MesAportado;
-            aporte.AnioAportado = aporteData.AnioAportado;
-            aporte.UrlEvidencia = aporteData.UrlEvidencia;
-            aporte.IdMedioPago = aporteData.IdMedioPago;
+            // 🚀 BLINDAJE ULTRAESTRICTO: Validamos que REALMENTE exista un archivo binario nuevo y físico
+            if (dto.ArchivoVoucher != null && dto.ArchivoVoucher.Length > 0 && !string.IsNullOrEmpty(dto.ArchivoVoucher.FileName))
+            {
+                try
+                {
+                    Console.WriteLine($"📡 [AZURE] Transmitiendo nuevo archivo: {dto.ArchivoVoucher.FileName} ({dto.ArchivoVoucher.Length} bytes)");
+                    string nuevaUrlAzure = await _blobService.UploadVoucherAsync(dto.ArchivoVoucher);
+                    aporte.UrlEvidencia = nuevaUrlAzure;
+                }
+                catch (System.Exception ex)
+                {
+                    // Devolvemos el error real del SDK de Azure para saber exactamente qué falló (Permisos, Llave, Contenedor)
+                    return StatusCode(500, new { message = "Error de red al actualizar el voucher en Azure.", detalles = ex.Message, traza = ex.InnerException?.Message });
+                }
+            }
+            else
+            {
+                // 🎯 Si el Front no mandó un archivo físico nuevo, NO tocamos Azure. 
+                // Conservamos intacta la URL de la imagen que el aporte ya tenía guardada en la base de datos.
+                Console.WriteLine("ℹ️ [AZURE] Edición sin cambio de imagen. Conservando URL previa.");
+            }
 
-            // Si estaba rechazado, vuelve a pendiente para nueva revisión
+            // Sincronización de los campos de negocio
+            aporte.CantidadAcciones = dto.CantidadAcciones;
+            aporte.MesAportado = dto.MesAportado;
+            aporte.AnioAportado = dto.AnioAportado;
+            aporte.IdMedioPago = dto.IdMedioPago;
+            aporte.MontoPagado = dto.MontoPagado;
+
             if (aporte.EstadoPago == 'R') aporte.EstadoPago = 'P';
 
             await _context.SaveChangesAsync();
-            return Ok(new { message = "Aporte actualizado correctamente." });
+            return Ok(new { message = "Aporte actualizado correctamente.", url = aporte.UrlEvidencia });
         }
 
         [HttpDelete("eliminar/{id}")]
