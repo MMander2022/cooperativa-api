@@ -8,31 +8,58 @@ using System.Threading.Tasks;
 
 public class BlobStorageService
 {
-    private readonly string _connectionString;
-    private readonly string _containerName;
+    private readonly string? _connectionString;
+    private readonly string? _containerName;
+    private readonly BlobServiceClient? _blobServiceClient;
 
     public BlobStorageService(IConfiguration configuration)
     {
+        // 1. Extraemos los valores de configuración de forma segura
         _connectionString = configuration.GetConnectionString("AzureBlobStorage");
-        _containerName = configuration.GetValue<string>("BlobSettings:ContainerName");
+        _containerName = configuration.GetValue<string>("BlobSettings:ContainerName") ?? "vouchers";
+
+        try
+        {
+            // 🛡️ CONTROL DE TOLERANCIA A FALLOS DE ARRANQUE
+            // Si la cadena está vacía o es genérica, evitamos inicializar el cliente para que no explote la API
+            if (!string.IsNullOrEmpty(_connectionString) && !_connectionString.Contains("GITHUB") && !_connectionString.Contains("PROTEGIDA"))
+            {
+                _blobServiceClient = new BlobServiceClient(_connectionString);
+                Console.WriteLine("🌐 [AZURE BLOB STORAGE] Cliente inicializado con éxito.");
+            }
+            else
+            {
+                Console.WriteLine("⚠️ [AZURE BLOB STORAGE] Advertencia: Cadena vacía o de desarrollo. Servicio en modo pasivo.");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Capturamos el error de parseo para que la API NO devuelva un Error 500 global
+            Console.WriteLine($"❌ [AZURE BLOB STORAGE] Error crítico de inicialización: {ex.Message}");
+            _blobServiceClient = null;
+        }
     }
 
     public async Task<string> UploadVoucherAsync(IFormFile archivo)
     {
         if (archivo == null || archivo.Length == 0) return string.Empty;
 
-        // 1. Conectar con el cliente de Azure Blob Storage
-        var blobServiceClient = new BlobServiceClient(_connectionString);
-        var containerClient = blobServiceClient.GetBlobContainerClient(_containerName);
+        // Si el cliente no se pudo inicializar en el arranque, avisamos al flujo en caliente
+        if (_blobServiceClient == null)
+        {
+            throw new Exception("El servicio de almacenamiento en la nube no está configurado correctamente en producción.");
+        }
 
-        // 2. Generar un nombre único de alta seguridad usando un Guid para evitar cruces
+        var containerClient = _blobServiceClient.GetBlobContainerClient(_containerName);
+
+        // Aseguramos que el contenedor exista de forma asíncrona al momento de la carga
+        await containerClient.CreateIfNotExistsAsync(PublicAccessType.Blob);
+
         string extension = Path.GetExtension(archivo.FileName);
         string nombreUnicoArchivo = $"voucher_{Guid.NewGuid()}{extension}";
 
-        // 3. Obtener la referencia del Blob final en la nube
         var blobClient = containerClient.GetBlobClient(nombreUnicoArchivo);
 
-        // 4. Transmitir el stream binario directo a Azure
         using (var stream = archivo.OpenReadStream())
         {
             var blobUploadOptions = new BlobUploadOptions
@@ -42,7 +69,6 @@ public class BlobStorageService
             await blobClient.UploadAsync(stream, blobUploadOptions);
         }
 
-        // 5. Retornar la URL pública absoluta lista para guardar en SQL
         return blobClient.Uri.ToString();
     }
 }
