@@ -16,34 +16,79 @@ namespace CooperativaApp.Controllers
     {
         private readonly IAporteService _aporteService;
         private readonly CooperativaContext _context;
-
-        public AportesController(IAporteService aporteService, CooperativaContext context)
+        private readonly BlobStorageService _blobService;
+        public AportesController(IAporteService aporteService, CooperativaContext context, BlobStorageService blobService)
         {
             _aporteService = aporteService;
             _context = context;
+            _blobService = blobService;
         }
-
         [HttpPost("registrar")]
-        public async Task<IActionResult> Registrar(AporteSocio aporte)
+        public async Task<IActionResult> Registrar([FromForm] AporteRequestDto dto)
         {
             var idSocioToken = User.FindFirst("IdSocio")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             var idUsuarioToken = User.FindFirst("IdUsuario")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            bool esAdmin = User.IsInRole("Admin") || User.IsInRole("Administrador") || User.IsInRole("Gerente");
 
-            if (!User.IsInRole("Admin") && !string.IsNullOrEmpty(idSocioToken))
+            // Mapeamos los datos del formulario a la entidad de negocio
+            var aporte = new AporteSocio
             {
-                aporte.IdSocio = int.Parse(idSocioToken);
-            }
+                IdSocio = dto.IdSocio,
+                CantidadAcciones = dto.CantidadAcciones,
+                IdMedioPago = dto.IdMedioPago,
+                MesAportado = dto.MesAportado,
+                AnioAportado = dto.AnioAportado
+            };
 
             if (!string.IsNullOrEmpty(idUsuarioToken))
-            {
                 aporte.IdUsuarioRegistro = int.Parse(idUsuarioToken);
+
+            if (!esAdmin)
+            {
+                // Si el socio NO seleccionó a nadie o se seleccionó a sí mismo — usar token
+                if (aporte.IdSocio == 0 || aporte.IdSocio == int.Parse(idSocioToken ?? "0"))
+                {
+                    aporte.IdSocio = int.Parse(idSocioToken ?? "0");
+                }
+                else
+                {
+                    // Verificar que el IdSocio seleccionado pertenece al núcleo familiar
+                    var socioLogueado = int.Parse(idSocioToken ?? "0");
+                    var perteneceAlNucleo = await _context.Familiaridad
+                        .AnyAsync(n =>
+                            (n.IdSocioTitular == socioLogueado && n.IdSocioFamiliar == aporte.IdSocio) ||
+                            (n.IdSocioFamiliar == socioLogueado && n.IdSocioTitular == aporte.IdSocio)
+                        );
+
+                    if (!perteneceAlNucleo)
+                        return BadRequest(new { message = "Seguridad: El socio seleccionado no pertenece a su núcleo familiar." });
+                }
             }
 
+            // 🚀 SUBIDA AL CONTENEDOR DE AZURE BLOB STORAGE
+            if (dto.ArchivoVoucher != null && dto.ArchivoVoucher.Length > 0)
+            {
+                try
+                {
+                    // Se sube el archivo al contenedor "vouchers" en Azure
+                    string urlAzure = await _blobService.UploadVoucherAsync(dto.ArchivoVoucher);
+
+                    // Se le asigna la URL pública generada a la entidad antes de ir al servicio
+                    aporte.UrlEvidencia = urlAzure;
+                }
+                catch (System.Exception ex)
+                {
+                    return StatusCode(500, new { message = "Error de infraestructura al guardar la imagen en Azure.", detalles = ex.Message });
+                }
+            }
+
+            // Se envía la entidad con la UrlEvidencia ya poblada al servicio de persistencia
             var result = await _aporteService.RegistrarAporteAsync(aporte);
             if (!result.Success) return BadRequest(new { message = result.Message });
 
-            return Ok(new { message = result.Message });
+            return Ok(new { message = result.Message, url = aporte.UrlEvidencia });
         }
+
         [HttpGet("configuracion-actual")]
         public async Task<IActionResult> GetConfig()
         {
@@ -203,100 +248,55 @@ namespace CooperativaApp.Controllers
 
             return Ok(new { message = "Aporte cancelado exitosamente." });
         }
-
         [HttpGet("pendientes")]
-
         public async Task<IActionResult> GetPendientes()
-
         {
-
             Console.WriteLine("--------------------------------------------------");
-
             Console.WriteLine("🔍 INSPECCIÓN DE RADAR: GetPendientes invocado");
 
-
-
             try
-
             {
-
-                // 1. Verificamos el Contexto
-
                 if (_context == null) throw new Exception("❌ El Contexto de Base de Datos es NULO");
 
-             
-                // 2. Ejecutamos la consulta
-
                 var lista = await _context.AportesSocios
-
                     .Include(a => a.Socio)
                     .Include(a => a.MedioPago)
                     .Include(a => a.ConfigAporte)
-
                     .Where(a => a.EstadoPago == 'P')
-
                     .ToListAsync();
-
-
 
                 Console.WriteLine($"📊 REGISTROS ENCONTRADOS: {lista.Count}");
 
-
-
-                // 3. Pintamos el primer registro si existe para detectar NULOS
-
                 if (lista.Any())
-
                 {
-
                     var primero = lista.First();
-
                     Console.WriteLine($"🆔 Primer Aporte ID: {primero.IdAporte}");
-
                     Console.WriteLine($"👤 Socio Relacionado: {(primero.Socio != null ? "OK" : "NULO 🚩")}");
-
                     Console.WriteLine($"⚙️ Config Relacionada: {(primero.ConfigAporte != null ? "OK" : "NULO 🚩")}");
-
                 }
 
-
-
                 var resultado = lista.Select(a => new {
-
                     IdAporte = a.IdAporte,
-
                     SocioNombre = a.Socio != null ? $"{a.Socio.Nombres} {a.Socio.Apellidos}" : "Socio Huérfano",
-
                     a.MontoPagado,
-
                     a.EstadoPago,
                     periodo = $"{a.MesAportado:00}-{a.AnioAportado}",
-                    mesAportado = a.MesAportado, // Necesario para el front
-                    anioAportado = a.AnioAportado, // Necesario para el front
+                    mesAportado = a.MesAportado,
+                    anioAportado = a.AnioAportado,
                     medioPago = a.MedioPago != null ? a.MedioPago.Nombre : "NO ESPECIFICADO",
                     idMedioPago = a.IdMedioPago,
-
-
+                    // 🎯 AJUSTE DIAMANTE: Se inyecta la propiedad al payload de salida
+                    urlEvidencia = a.UrlEvidencia
                 }).ToList();
 
-
-
                 return Ok(resultado);
-
             }
-
             catch (Exception ex)
-
             {
-
                 Console.WriteLine($"❌ ERROR CRÍTICO: {ex.Message}");
-
                 Console.WriteLine($"📂 STACKTRACE: {ex.StackTrace}");
-
                 return StatusCode(500, ex.Message);
-
             }
-
         }
 
         [HttpPost("aprobar/{id}")]

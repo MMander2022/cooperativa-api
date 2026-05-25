@@ -12,6 +12,7 @@ namespace CooperativaApp.Models
         public decimal Monto { get; set; }
         public DateTime FechaSolicitud { get; set; } = DateTime.Now;
         public string MedioPago { get; set; } // EFECTIVO, TRANSFERENCIA, YAPE, PLIN
+        public int IdMedioPago { get; set; }
         public string? ReferenciaOperacion { get; set; }
         public string? ComprobanteUrl { get; set; }
         public int IdEstado { get; set; } // 1: Pendiente, 2: Procesado, 3: Rechazado

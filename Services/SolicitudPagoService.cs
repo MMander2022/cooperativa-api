@@ -118,6 +118,7 @@ namespace CooperativaApp.Services
                     IdSocio = creditoTarget.IdSocio, // Usamos el socio real del crédito
                     Monto = dto.Monto,
                     MedioPago = dto.MedioPago,
+                    IdMedioPago=dto.IdMedioPago,
                     ReferenciaOperacion = dto.Referencia,
                     IdEstado = 1, // Pendiente
                     FechaSolicitud = DateTime.Now

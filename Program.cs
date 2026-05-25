@@ -80,6 +80,7 @@ builder.Services.AddScoped<ICreditoService, CreditoService>();
 builder.Services.AddScoped<ISolicitudService, SolicitudService>();
 builder.Services.AddScoped<IFamiliaridadService, FamiliaridadService>();
 builder.Services.AddApplicationInsightsTelemetry();
+builder.Services.AddScoped<BlobStorageService>();
 builder.Services.AddMemoryCache();
 
 // 🧬 3. CONTROLADORES Y JSON
@@ -96,7 +97,7 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(
                 "https://cooperativa.mandersystems.com",
-              "http://localhost:5174"
+              "http://localhost:5174", "http://localhost:5175"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
