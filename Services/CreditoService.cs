@@ -635,12 +635,12 @@ namespace CooperativaApp.Services
         public async Task<IEnumerable<CreditoSocioDTO>> ObtenerCreditosPorPerfilAsync(int usuarioId, string perfil, int? socioId)
         {
             // 🕵️ DEBUG: Imprimir en la consola del servidor para ver qué llega
-            Console.WriteLine($"🔍 Procesando Radar - Perfil: {perfil}, SocioId: {socioId}");
+            
 
             // 1. Radar Base: Ampliamos los estados por si acaso
             var query = _context.Creditos
                 .Include(c => c.Socio)
-                .Where(c => new[] { "DESEMBOLSADO", "VIGENTE", "PARCIAL", "APROBADO" }.Contains(c.Estado.ToUpper()))
+                .Where(c => new[] { "DESEMBOLSADO",  "PARCIAL" }.Contains(c.Estado.ToUpper()))
                 .AsQueryable();
 
             // 2. 🛡️ Lógica de Seguridad Diamante (Normalizada)
@@ -671,6 +671,7 @@ namespace CooperativaApp.Services
                     MontoOriginal = c.Monto,
                     NombreSocio = c.Socio != null ? c.Socio.Nombres + " " + c.Socio.Apellidos : "Socio Externo",
                     Estado = c.Estado,
+                    FechaUltimoDesembolso=c.FechaUltimoDesembolso,
                     // 💎 ProximoVencimiento: Si falla aquí, la consulta falla. Aseguramos el LEFT JOIN
                     ProximoVencimiento = _context.Cuotas
                         .Where(q => q.IdCredito == c.IdCredito && q.Estado != "PAGADO")

@@ -132,7 +132,6 @@ namespace CooperativaApp.Controllers
                 });
             }
         }
-
         [HttpGet("mis-aportes")]
         public async Task<IActionResult> GetMisAportes()
         {
@@ -142,14 +141,18 @@ namespace CooperativaApp.Controllers
                 var perfilClaim = User.FindFirst("Perfil")?.Value?.ToUpper() ?? "";
                 bool isAdmin = perfilClaim == "ADMIN" || perfilClaim == "ADMINISTRADOR" || perfilClaim == "GERENTE";
 
-                // 1. Iniciamos Query con Includes tácticos
+                // 1. Iniciamos Query con Includes tácticos asíncronos
                 var query = _context.AportesSocios
                     .Include(a => a.Socio)
                     .Include(a => a.MedioPago)
+                    .Where(a => a.EstadoPago != 'E') // Filtro perimetral: Excluir eliminados desde el inicio
                     .AsNoTracking()
                     .AsQueryable();
 
-                // 2. FILTRO DE SEGURIDAD NÚCLEO FAMILIAR (Mega Diamante)
+                // Variable de control para identificar si el socio tiene carga familiar asociada
+                bool tieneNucleoFamiliar = false;
+
+                // 2. FILTRO DE SEGURIDAD NÚCLEO FAMILIAR
                 if (!isAdmin)
                 {
                     int idSocioSesion = 0;
@@ -161,41 +164,49 @@ namespace CooperativaApp.Controllers
                         .Select(f => f.IdSocioFamiliar)
                         .ToListAsync();
 
+                    if (idsFamilia.Count > 0)
+                    {
+                        tieneNucleoFamiliar = true;
+                    }
+
                     // Incluimos al titular en el radio de búsqueda
                     idsFamilia.Add(idSocioSesion);
 
-                    // Filtramos la query para que solo devuelva aportes del núcleo familiar
+                    // Filtramos la query para que solo devuelva aportes autorizados del núcleo
                     query = query.Where(a => idsFamilia.Contains(a.IdSocio));
                 }
 
-                // 3. ORDENAMIENTO (Socio -> Año -> Mes Creciente para facilitar auditoría familiar)
-                if (isAdmin || (!isAdmin && query.Select(x => x.IdSocio).Distinct().Count() > 1))
+                // ── 🎯 3. ARQUITECTURA DE ORDENAMIENTO EN CALIENTE (REGLA DE NEGOCIO V2026) ──
+                if (isAdmin || tieneNucleoFamiliar)
                 {
-                    // Si es admin o un titular con familia, ordenamos por nombre para agruparlos visualmente
+                    // Escenario Admin o Familia: Agrupamos visualmente por Socio y ordenamos del más actual al más antiguo
                     query = query
                         .OrderBy(a => a.Socio.Nombres)
-                        .ThenBy(a => a.Socio.Apellidos)
-                        .ThenBy(a => a.AnioAportado)
-                        .ThenBy(a => a.MesAportado);
+                        .ThenBy(a => a.Socio.ApellidoPaterno)
+                        .ThenBy(a => a.Socio.ApellidoMaterno)
+                        .ThenByDescending(a => a.AnioAportado)  // 👈 Del más actual...
+                        .ThenByDescending(a => a.MesAportado);   // 👈 ...al más antiguo
                 }
                 else
                 {
-                    // Socio individual: Orden cronológico descendente
-                    query = query.OrderByDescending(a => a.AnioAportado).ThenByDescending(a => a.MesAportado);
+                    // Socio Independiente: Línea de tiempo pura descendente
+                    query = query
+                        .OrderByDescending(a => a.AnioAportado)
+                        .ThenByDescending(a => a.MesAportado);
                 }
 
-                // 4. Proyección de Datos Blindada
+                // 4. Proyección de Datos Eficiente y Mapeo de Identidad Normalizado
                 var aportes = await query
-                    .Where(a => a.EstadoPago != 'E') // Excluir eliminados
                     .Select(a => new {
                         idAporte = a.IdAporte,
                         idSocio = a.IdSocio,
-                        nombreSocio = $"{a.Socio.Nombres} {a.Socio.Apellidos}".ToUpper(),
+                        // Concatenación robusta basada en la estructura contable real de tu base de datos
+                        nombreSocio = $"{a.Socio.Nombres} {a.Socio.ApellidoPaterno} {a.Socio.ApellidoMaterno}".Trim().ToUpper(),
                         montoPagado = decimal.Round(a.MontoPagado, 2),
                         periodo = $"{a.MesAportado:00}-{a.AnioAportado}",
-                        mesAportado = a.MesAportado, // Necesario para el front
-                        anioAportado = a.AnioAportado, // Necesario para el front
-                        medioPago = a.MedioPago != null ? a.MedioPago.Nombre : "NO ESPECIFICADO",
+                        mesAportado = a.MesAportado,
+                        anioAportado = a.AnioAportado,
+                        medioPago = a.MedioPago != null ? a.MedioPago.Nombre.ToUpper() : "NO ESPECIFICADO",
                         idMedioPago = a.IdMedioPago,
                         estadoPago = a.EstadoPago.ToString(),
                         fechaPago = a.FechaPago
@@ -495,8 +506,7 @@ namespace CooperativaApp.Controllers
 
         }
         [HttpPost("actualizar-config")]
-        public async Task<IActionResult> ActualizarConfiguracion(
-    [FromBody] ConfigAporteRequestDTO request)
+        public async Task<IActionResult> ActualizarConfiguracion( [FromBody] ConfigAporteRequestDTO request)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -593,6 +603,40 @@ namespace CooperativaApp.Controllers
                     message = ex.Message
                 });
             }
+        }
+
+        [HttpGet("consolidado")]
+        public async Task<IActionResult> GetConsolidado([FromQuery] int? anio)
+        {
+            // ── 🎯 EXTRACCIÓN HIGHER-SPEC DE CLAIMS DEL TOKEN JWT ──
+            var idSocioToken = User.FindFirst("IdSocio")?.Value;
+            var idUsuarioToken = User.FindFirst("IdUsuario")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+            // Evaluamos el rol buscando tanto en los claims estándar como en tus mapeos de texto del JSON ("Perfil" y "role")
+            var perfilClaim = User.FindFirst("Perfil")?.Value ?? User.FindFirst("role")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+
+            // ── 🎯 BLINDAJE LOGÍSITICO ANTI-FALSOS NEGATIVOS ──
+            bool esAdmin = User.IsInRole("Admin")
+                        || User.IsInRole("Administrador")
+                        || User.IsInRole("Gerente")
+                        || new[] { "admin", "administrador", "gerente" }.Contains(perfilClaim.ToLower().Trim());
+
+            int socioId = 0;
+            if (!string.IsNullOrWhiteSpace(idSocioToken))
+            {
+                int.TryParse(idSocioToken, out socioId);
+            }
+
+            int usuarioId = 0;
+            if (!string.IsNullOrWhiteSpace(idUsuarioToken))
+            {
+                int.TryParse(idUsuarioToken, out usuarioId);
+            }
+
+            // Invocamos el servicio pasando la bandera real validada por espectro de texto
+            var reporte = await _aporteService.ObtenerReporteConsolidadoAsync(socioId, usuarioId, esAdmin, anio);
+
+            return Ok(reporte);
         }
         // Se mantienen intactos los métodos Aprobar, Rechazar, GetConfig y GetPendientes...
     }

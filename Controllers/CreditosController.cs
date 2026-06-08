@@ -129,18 +129,7 @@ namespace CooperativaApp.Controllers
             int? socioId = !string.IsNullOrEmpty(socioIdStr) ? int.Parse(socioIdStr) : null;
             var idUsuarioToken = User.FindFirst("IdUsuario")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             int usuarioId = int.Parse(idUsuarioToken);
-            //////////////////////////////////////
-            ///
-
-
-            // LOGS EN LA CONSOLA DE VISUAL STUDIO / SERVER
-            Console.WriteLine("==========================================");
-            Console.WriteLine($"🛰️ SOLICITUD RECIBIDA EN EL NÚCLEO");
-            Console.WriteLine($"🎭 Perfil en Token: '{perfil}'");
-            Console.WriteLine($"🆔 IdSocio en Token: '{socioIdStr}'");
-            //Console.WriteLine($"👤 IdUsuario en Token: '{usuarioIdStr}'");
-            Console.WriteLine("==========================================");
-
+            
             // Delegamos al servicio diamante
             var creditos = await _creditoService.ObtenerCreditosPorPerfilAsync(usuarioId, perfil, socioId);
 

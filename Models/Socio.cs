@@ -39,9 +39,11 @@ namespace CooperativaApp.Models
         public int? IdUsuarioRegistro { get; set; }
         public int? IdUsuarioModificacion { get; set; }
         public DateTime? FechaModificacion { get; set; } = DateTime.Now;
+        public bool? PermiteRetiro { get; set; } = false;
 
         // 🔗 Relación con Historial (Opcional, pero recomendada)
         [JsonIgnore] // Aquí sí va el Ignore para evitar ciclos infinitos
         public virtual ICollection<HistorialEstadoSocio>? HistorialEstados { get; set; }
+
     }
 }

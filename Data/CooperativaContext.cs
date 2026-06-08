@@ -48,9 +48,39 @@ namespace CooperativaApp.Data
         public DbSet<SolicitudPagoSocio> SolicitudPagoSocio { get; set; } = null!;
         public DbSet<SolicitudPagoDetalle> SolicitudPagoDetalle { get; set; } = null!;
         public DbSet<MedioPago> MedioPago { get; set; } = null!;
+        public DbSet<AporteSpResponse> AporteSpResponses { get; set; }
+        public virtual DbSet<PeriodoRetiro> PeriodosRetiro { get; set; }
+        public virtual DbSet<SolicitudRetiro> SolicitudesRetiro { get; set; }
+        public virtual DbSet<CuadreCajaSpResponse> CuadreCajaSpResponses { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<AporteSpResponse>().HasNoKey();
+            modelBuilder.Entity<CooperativaApp.Models.SolicitudRetiro>(entity =>
+            {
+                // Fuerza el nombre exacto de la tabla física
+                entity.ToTable("SolicitudesRetiro");
+                entity.HasKey(e => e.IdSolicitud);
+
+                // 🛡️ Forzado Indestructible de la FK de Periodo (Cura Invalid column name 'PeriodoRetiroIdPeriodo')
+                entity.HasOne(d => d.PeriodoRetiro)
+                      .WithMany()
+                      .HasForeignKey(d => d.IdPeriodo) // 👈 Vincula la propiedad virtual a este int
+                      .HasPrincipalKey(p => p.IdPeriodo) // 👈 Llave primaria en la tabla PeriodosRetiro
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                // 🛡️ Forzado Indestructible de la FK de Socio (Cura Invalid column name 'SocioIdSocio')
+                entity.HasOne(d => d.Socio)
+                      .WithMany()
+                      .HasForeignKey(d => d.IdSocio) // 👈 Vincula la propiedad virtual a este int
+                      .HasPrincipalKey(s => s.IdSocio) // 👈 Llave primaria en la tabla Socio
+                      .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<CuadreCajaSpResponse>(entity =>
+            {
+                entity.HasNoKey(); 
+            });
             modelBuilder.Entity<GlobalSettings>(entity =>
             {
                 entity.HasKey(e => e.SettingId);

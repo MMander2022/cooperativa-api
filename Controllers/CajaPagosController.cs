@@ -34,7 +34,7 @@ namespace CooperativaApp.Controllers
         /// Nivel: Socio / Admin
         /// </summary>
         [HttpPost("registrar-socio")]
-        public async Task<IActionResult> RegistrarSocio([FromBody] RegistrarSolicitudPagoDTO request)
+        public async Task<IActionResult> RegistrarSocio([FromForm] RegistrarSolicitudPagoDTO request)
         {
             // Extraemos la identidad del Token
             var perfil = User.FindFirst("Perfil")?.Value ?? "Socio";
@@ -50,22 +50,22 @@ namespace CooperativaApp.Controllers
         /// ⚖️ PROCESAR SOLICITUD: El cajero aprueba o rechaza el reporte del socio.
         /// Nivel: Administrativo / Cajero
         /// </summary>
-        [HttpPost("procesar")]
-        public async Task<IActionResult> Procesar([FromBody] ProcesarSolicitudRequest request)
-        {
-            if (request == null) return BadRequest(new { exito = false, mensaje = "Datos de procesamiento inválidos." });
+            [HttpPost("procesar")]
+            public async Task<IActionResult> Procesar([FromBody] ProcesarSolicitudRequest request)
+            {
+                if (request == null) return BadRequest(new { exito = false, mensaje = "Datos de procesamiento inválidos." });
 
-            // Extraemos el ID del cajero/admin que está operando
-            var usuarioIdStr = User.FindFirst("IdUsuario")?.Value;
-            int usuarioId = int.Parse(usuarioIdStr ?? "0");
+                // Extraemos el ID del cajero/admin que está operando
+                var usuarioIdStr = User.FindFirst("IdUsuario")?.Value;
+                int usuarioId = int.Parse(usuarioIdStr ?? "0");
 
-            // Ejecutamos la validación (Si es APROBAR, el servicio debe ejecutar el cobro de cuotas)
-            var resultado = await _solicitudService.ProcesarSolicitudAsync(
-                request.IdSolicitud,
-                request.Accion, // "APROBAR" o "RECHAZAR"
-                request.Motivo,
-                usuarioId
-            );
+                // Ejecutamos la validación (Si es APROBAR, el servicio debe ejecutar el cobro de cuotas)
+                var resultado = await _solicitudService.ProcesarSolicitudAsync(
+                    request.IdSolicitud,
+                    request.Accion, // "APROBAR" o "RECHAZAR"
+                    request.Motivo,
+                    usuarioId
+                );
 
             return resultado.Exito ? Ok(resultado) : BadRequest(resultado);
         }

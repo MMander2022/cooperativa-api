@@ -1,7 +1,16 @@
-﻿using CooperativaApp.Data;
+﻿
+using CooperativaApp.Data;
+using CooperativaApp.DTOs;
+using CooperativaApp.DTOS;
 using CooperativaApp.Interfaces;
 using CooperativaApp.Models;
-using Microsoft.EntityFrameworkCore; 
+using Microsoft.EntityFrameworkCore;
+
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace CooperativaApp.Services
 {
@@ -196,6 +205,70 @@ namespace CooperativaApp.Services
                 return (false, ex.Message);
             }
         }
+        public async Task<ReporteAportesConsolidadoDto> ObtenerReporteConsolidadoAsync(int idSocioToken, int idUsuarioToken, bool esAdmin, int? anioConsulta)
+        {
+            var reporte = new ReporteAportesConsolidadoDto();
+            int anioActual = anioConsulta ?? DateTime.Now.Year;
 
+            // ── 🎯 1. EJECUCIÓN DEL PROCEDIMIENTO ALMACENADO NATIVO ──
+            var datosCrudos = await _context.AporteSpResponses
+                .FromSqlInterpolated($"EXEC sp_ObtenerReporteAportesConsolidado @IdSocioToken={idSocioToken}, @EsAdmin={esAdmin}, @AnioConsulta={anioActual}")
+                .ToListAsync();
+
+            // 📊 2. CONSOLIDACIÓN HISTÓRICA DE LOS ÚLTIMOS 5 AÑOS
+            int anioInicioRango = DateTime.Now.Year - 4; // Rango dinámico (2022 a 2026)
+
+            var agrupadoPorAnio = datosCrudos
+                .Where(a => a.AnioAportado >= anioInicioRango && a.AnioAportado <= DateTime.Now.Year)
+                .GroupBy(a => a.AnioAportado)
+                .ToDictionary(g => g.Key, g => g.Sum(a => a.MontoPagado));
+
+            for (int i = 0; i < 5; i++)
+            {
+                int anioEvaluado = anioInicioRango + i;
+                reporte.HistoricoCincoAnios.Add(new AporteAnualDto
+                {
+                    Anio = anioEvaluado,
+                    TotalPagado = agrupadoPorAnio.ContainsKey(anioEvaluado) ? agrupadoPorAnio[anioEvaluado] : 0
+                });
+            }
+            reporte.HistoricoCincoAnios = reporte.HistoricoCincoAnios.OrderBy(a => a.Anio).ToList();
+
+            // 📊 3. CONSOLIDACIÓN DISTRIBUCIÓN MENSUAL DEL AÑO EN CURSO
+            var aportesAnioFiltro = datosCrudos.Where(a => a.AnioAportado == anioActual).ToList();
+
+            for (int mes = 1; mes <= 12; mes++)
+            {
+                var aportesDelMes = aportesAnioFiltro.Where(a => a.MesAportado == mes).ToList();
+
+                // ── 🎯 CORRECCIÓN: Usamos directamente el tipo nativo AporteMensualDto sin adaptadores huerfanos ──
+                reporte.DetalleMensualAnio.Add(new AporteMensualDto
+                {
+                    Mes = mes,
+                    NombreMes = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(mes).ToUpper(),
+                    TotalPagado = aportesDelMes.Sum(a => a.MontoPagado),
+                    CantidadAportes = aportesDelMes.Count
+                });
+            }
+
+            // 📋 4. PROYECCIÓN DE LA TABLA DETALLADA ANALÍTICA
+            reporte.ListaDetallada = aportesAnioFiltro
+                .Select(a => new DetalleAporteSocioDto
+                {
+                    IdAporte = a.IdAporte,
+                    IdSocio = a.IdSocio,
+                    NombreSocio = a.NombresSocio,
+                    DniSocio = a.DniSocio,
+                    Mes = a.MesAportado,
+                    Anio = a.AnioAportado,
+                    Monto = a.MontoPagado,
+                    FechaPago = a.FechaPago.ToString("dd/MM/yyyy HH:mm"),
+                    Estado = "APROBADO"
+                })
+                .OrderByDescending(a => a.IdAporte)
+                .ToList();
+
+            return reporte;
+        }
     }
 }

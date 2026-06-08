@@ -79,6 +79,8 @@ builder.Services.AddScoped<ISolicitudPagoService, SolicitudPagoService>();
 builder.Services.AddScoped<ICreditoService, CreditoService>();
 builder.Services.AddScoped<ISolicitudService, SolicitudService>();
 builder.Services.AddScoped<IFamiliaridadService, FamiliaridadService>();
+builder.Services.AddScoped<ICajaService, CajaService>();
+builder.Services.AddScoped<IRetiroService, RetiroService>();
 builder.Services.AddApplicationInsightsTelemetry();
 builder.Services.AddScoped<BlobStorageService>();
 builder.Services.AddMemoryCache();
@@ -97,7 +99,7 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(
                 "https://cooperativa.mandersystems.com",
-              "http://localhost:5174", "http://localhost:5176", "http://localhost:5175"
+              "http://localhost:5174", "http://localhost:5176", "http://localhost:5175", "http://localhost:5173"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()

@@ -1,5 +1,6 @@
 ﻿using CooperativaApp.Data;
 using CooperativaApp.Models;
+using CooperativaApp.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,10 +9,14 @@ using Microsoft.EntityFrameworkCore;
 public class CajaController : ControllerBase
 {
     private readonly CooperativaContext _context;
+    private readonly ICajaService _cajaService;
+    public CajaController(CooperativaContext context, ICajaService cajaService)
+    {
+            _cajaService = cajaService;
+            _context = context;
+    }
 
-    public CajaController(CooperativaContext context) => _context = context;
-
-    [HttpPost("registrar-movimiento")]
+[HttpPost("registrar-movimiento")]
     public async Task<IActionResult> RegistrarMovimiento([FromBody] MovimientoRequest req)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
@@ -89,5 +94,16 @@ public class CajaController : ControllerBase
             egresos,
             saldoEstimado = ingresos - egresos
         });
+    }
+    [HttpGet("cuadre-diario")]
+    public async Task<IActionResult> GetCuadreDiario([FromQuery] string fecha)
+    {
+        if (!DateTime.TryParse(fecha, out DateTime fechaParsed))
+        {
+            return BadRequest(new { message = "Formato de fecha inválido. Usar YYYY-MM-DD." });
+        }
+
+        var result = await _cajaService.ObtenerCuadreDiarioAsync(fechaParsed);
+        return Ok(result);
     }
 }

@@ -14,7 +14,8 @@ namespace CooperativaApp.Models
         public string MedioPago { get; set; } // EFECTIVO, TRANSFERENCIA, YAPE, PLIN
         public int IdMedioPago { get; set; }
         public string? ReferenciaOperacion { get; set; }
-        public string? ComprobanteUrl { get; set; }
+        public string? ComprobanteUrl { get; set; } = string.Empty;
+        //public IFormFile? ComprobanteUrl { get; set; }
         public int IdEstado { get; set; } // 1: Pendiente, 2: Procesado, 3: Rechazado
         public string? ObservacionesCajero { get; set; }
         public DateTime? FechaProcesamiento { get; set; }

@@ -11,7 +11,13 @@ namespace CooperativaApp.Services
     {
         private readonly CooperativaContext _context;
 
-        public SolicitudPagoService(CooperativaContext context) => _context = context;
+        private readonly BlobStorageService _blobService;
+
+        public SolicitudPagoService(CooperativaContext context, BlobStorageService blobService)
+        {
+            _context = context;
+            _blobService = blobService;
+        }
 
         public async Task<IEnumerable<object>> ObtenerPendientesAsync()
         {
@@ -27,7 +33,8 @@ namespace CooperativaApp.Services
                     s.ReferenciaOperacion,
                     s.FechaSolicitud,
                     NombreSocio = s.Socio != null ? s.Socio.Nombres + " " + s.Socio.Apellidos : "Socio Desconocido",
-                    DniSocio = s.Socio != null ? s.Socio.DNI : ""
+                    DniSocio = s.Socio != null ? s.Socio.DNI : "",
+                    ComprobanteUrl=s.ComprobanteUrl
                 }).ToListAsync();
         }
 
@@ -112,6 +119,11 @@ namespace CooperativaApp.Services
                 var creditoTarget = await _context.Creditos.FindAsync(dto.IdCredito);
                 if (creditoTarget == null) return new OperacionResponse(false, "El crédito no existe.");
 
+                string? urlVoucher = null;
+                if (dto.ArchivoVoucher != null && dto.ArchivoVoucher.Length > 0)
+                {
+                    urlVoucher = await _blobService.UploadVoucherAsync(dto.ArchivoVoucher);
+                }
                 var nuevaSolicitud = new SolicitudPagoSocio
                 {
                     IdCredito = dto.IdCredito,
@@ -120,6 +132,7 @@ namespace CooperativaApp.Services
                     MedioPago = dto.MedioPago,
                     IdMedioPago=dto.IdMedioPago,
                     ReferenciaOperacion = dto.Referencia,
+                    ComprobanteUrl = urlVoucher,
                     IdEstado = 1, // Pendiente
                     FechaSolicitud = DateTime.Now
                 };

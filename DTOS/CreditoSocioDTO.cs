@@ -8,5 +8,6 @@
         public DateTime? ProximoVencimiento { get; set; }
         public decimal SaldoPendiente { get; set; }
         public string Estado { get; set; }
+        public DateTime? FechaUltimoDesembolso { get; set; }
     }
 }

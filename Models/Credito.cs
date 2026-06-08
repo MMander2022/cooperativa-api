@@ -24,6 +24,7 @@ namespace CooperativaApp.Models
 
         public DateTime? FechaAprobacion { get; set; }
         public DateTime? FechaDesembolso { get; set; }
+        public DateTime? FechaUltimoDesembolso { get; set; }
         public List<Cuota>? Cuotas { get; set; }
         public string Estado { get; set; }
         public string? EstadoCredito { get; set; }
