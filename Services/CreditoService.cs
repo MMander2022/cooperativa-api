@@ -686,7 +686,7 @@ namespace CooperativaApp.Services
         {
             // 1. Ejecución del SP
             var resultado = await _context.Set<CuotaDetalleDTO>()
-                .FromSqlRaw("EXEC sp_GetPlanPagosDetallado @IdCredito = {0}", idCredito)
+                .FromSqlRaw("EXEC sp_GetPlanPagosDetalladoNuevo @IdCredito = {0}", idCredito)
                 .ToListAsync();
 
             // 🕵️ SONDA DE AUDITORÍA DIAMANTE (Mira esto en la consola de Visual Studio / Debug)
@@ -728,7 +728,7 @@ namespace CooperativaApp.Services
             {
                 // 🎯 Invocación directa al SP de Auditoría Analítica
                 var cronograma = await _context.Set<CuotaAnaliticaDTO>()
-                    .FromSqlInterpolated($"EXEC sp_GetPlanPagosAnalitico @IdCredito = {idCredito}")
+                    .FromSqlInterpolated($"EXEC sp_GetPlanPagosAnaliticoNuevo @IdCredito = {idCredito}")
                     .ToListAsync();
 
                 // 🕵️ SONDA DE VERIFICACIÓN (Opcional para Debug)
