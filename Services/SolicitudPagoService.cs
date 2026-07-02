@@ -23,13 +23,14 @@ namespace CooperativaApp.Services
         {
             return await _context.SolicitudPagoSocio
                 .Include(s => s.Socio)
+                .Include(s => s.MediosPago) // 📡 Carga la tabla Producto
                 .Where(s => s.IdEstado == 1)
                 .OrderByDescending(s => s.FechaSolicitud)
                 .Select(s => new {
                     s.IdSolicitud,
                     s.IdCredito,
                     s.Monto,
-                    s.MedioPago,
+                    MedioPago=s.MediosPago != null ? s.MediosPago.Nombre : "Medio Desconocido",
                     s.ReferenciaOperacion,
                     s.FechaSolicitud,
                     NombreSocio = s.Socio != null ? s.Socio.Nombres + " " + s.Socio.Apellidos : "Socio Desconocido",

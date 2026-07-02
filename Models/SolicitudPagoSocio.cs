@@ -26,5 +26,7 @@ namespace CooperativaApp.Models
         public virtual Credito? Credito { get; set; }
         [ForeignKey("IdSocio")]
         public virtual Socio? Socio { get; set; }
+        [ForeignKey("IdMedioPago")]
+        public virtual MedioPago? MediosPago { get; set; }
     }
 }

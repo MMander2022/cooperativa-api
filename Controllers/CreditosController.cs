@@ -92,8 +92,20 @@ namespace CooperativaApp.Controllers
         [HttpGet("socio/{socioId}")]
         public async Task<IActionResult> GetBySocio(int socioId)
         {
-            var data = await _creditoService.ObtenerCreditosPorSocioAsync(socioId);
-            return Ok(data);
+            try
+            {
+                var data = await _creditoService.ObtenerCreditosPorSocioAsync(socioId);
+                return Ok(data);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "Error al recuperar tus créditos",
+                    detail = ex.Message
+                });
+
+            }
         }
 
         // 🔹 ESTA ES LA RUTA QUE BUSCA SU FRONT: Creditos/${creditoId}/plan-pagos

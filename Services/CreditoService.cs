@@ -543,8 +543,19 @@ namespace CooperativaApp.Services
         }
         public async Task<IEnumerable<object>> ObtenerCreditosPorSocioAsync(int socioId)
         {
+            // 🛰️ 1. RADAR DE NÚCLEO FAMILIAR (Protocolo de Integridad Unificado)
+            var idsFamilia = await _context.Familiaridad
+                .Where(f => f.IdSocioTitular == socioId && f.Activo)
+                .Select(f => f.IdFamiliaridad)
+                .ToListAsync();
+
+            // Auto-inyección obligatoria del propio ID del socio titular
+            idsFamilia.Add(socioId);
+
+            // 🛰️ 2. EXTRACCIÓN Y MAPEO TITANIUM MULTI-FAMILIAR
             return await _context.Creditos
-                .Where(c => c.IdSocio == socioId)
+                .Include(c => c.Socio) // Incluimos la entidad Socio para jalar la trazabilidad de nombres
+                .Where(c => idsFamilia.Contains(c.IdSocio))
                 .OrderByDescending(c => c.FechaSolicitud)
                 .Select(c => new {
                     c.IdCredito,
@@ -553,12 +564,15 @@ namespace CooperativaApp.Services
                     c.FechaSolicitud,
                     c.TasaInteres,
                     c.PlazoMeses,
-                    c.MontoDesembolsado
-                  
+                    c.MontoDesembolsado,
+                    c.FechaDesembolso,
+                    c.FechaAprobacion,
+                    c.IdSocio,
+                    // 🎯 Propiedad crítica mapeada en mayúsculas/minúsculas lista para el front
+                    NombreSocio = c.Socio != null ? (c.Socio.Nombres + " " + c.Socio.Apellidos).ToUpper() : "SOCIO NÚCLEO"
                 })
                 .ToListAsync();
         }
-
         public async Task<IEnumerable<CuotaDetalleDTO>> ObtenerPlanPagosAsync(int idCredito)
         {
             return await _context.Cuotas

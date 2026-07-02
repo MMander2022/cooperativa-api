@@ -217,7 +217,7 @@ namespace CooperativaApp.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = $"Error en búnker de aportes familiar: {ex.Message}" });
+                return BadRequest(new { message = $"Error en aportes familiar: {ex.Message}" });
             }
         }
         [HttpPut("{id}")]
