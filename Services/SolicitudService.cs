@@ -454,7 +454,7 @@ namespace CooperativaApp.Services
             // 🛰️ 1. RADAR DE NÚCLEO FAMILIAR (Protocolo Invisible)
             var idsFamilia = await _context.Familiaridad
                 .Where(f => f.IdSocioTitular == socioId && f.Activo)
-                .Select(f => f.IdFamiliaridad)
+                .Select(f => f.IdSocioFamiliar)
                 .ToListAsync();
             idsFamilia.Add(socioId);
 

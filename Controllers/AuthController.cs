@@ -192,5 +192,126 @@ namespace CooperativaApp.Controllers
             _logger.LogInformation("Password cambiado para usuario ID {IdUsuario}", dto.IdUsuario);
             return Ok(new { Message = "Contraseña actualizada con éxito." });
         }
+        [AllowAnonymous]
+        [HttpPost("recuperar-credenciales")]
+        public async Task<IActionResult> RecuperarCredenciales([FromBody] RecuperarAccountDTO dto, [FromServices] IEmailService emailService)
+        {
+            // 🛡️ Blindaje de entrada
+            if (dto is null || string.IsNullOrWhiteSpace(dto.Dni))
+                return BadRequest(new { Message = "El número de documento (DNI) es requerido." });
+
+            string ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
+
+            // 1. Validar inyección del contexto de BD
+            if (_context == null || _context.Usuarios == null)
+                return StatusCode(500, new { Message = "Error interno: El contexto de base de datos no está inicializado." });
+
+            // 🛰️ RADAR DE IDENTIDAD POR DNI CON INCLUDE EXPLICITO (Sana el NullReferenceException)
+            var usuario = await _context.Usuarios
+                .Include(u => u.Socio) // 👈 CRÍTICO: Fuerza la carga de la relación de socios
+                .FirstOrDefaultAsync(u => u.Socio != null && u.Socio.DNI == dto.Dni.Trim());
+
+            if (usuario == null)
+            {
+                return NotFound(new { Message = "El número de documento ingresado no se encuentra registrado." });
+            }
+
+            // Doble verificación defensiva de la relación
+            if (usuario.Socio == null)
+            {
+                return BadRequest(new { Message = "El usuario existe pero no cuenta con un expediente de socio vinculado." });
+            }
+
+            // 🛡️ VALIDACIÓN CRÍTICA: Prevenir el nulo si el socio no tiene correo en la base de datos
+            if (string.IsNullOrWhiteSpace(usuario.Email))
+            {
+                return BadRequest(new { Message = "El usuario existe, pero no cuenta con un correo electrónico válido registrado en el sistema." });
+            }
+
+            // 2. Validar que el generador de auth no sea nulo
+            if (_authService == null)
+                return StatusCode(500, new { Message = "Error interno: El servicio de autenticación (_authService) es nulo." });
+
+            // Generar Contraseña Temporal Criptográfica Única
+            string passwordTemporal = GenerarPasswordAleatorioTop(10);
+            var (nuevoHash, nuevoSalt) = await _authService.HashearPassword(passwordTemporal);
+
+            usuario.PasswordHash = nuevoHash;
+            usuario.PasswordSalt = nuevoSalt;
+            usuario.RequiereCambioPassword = true;
+
+            await _context.SaveChangesAsync();
+
+            // 3. Validar el despachador de correos inyectado por parámetro
+            if (emailService == null)
+            {
+                return StatusCode(500, new { Message = "Error interno: El servicio IEmailService no pudo ser inyectado. Verifique Program.cs." });
+            }
+
+            // 4. Despacho al buzón específico
+            string asunto = "Plataforma UNIMAS - Restablecimiento de Cuenta";
+            string cuerpoHtml = $@"
+    <div style='font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;'>
+        <h2 style='color: #0C447C;'>Restauración de Cuenta UNIMAS</h2>
+        <p>Estimado socio, se ha procesado el restablecimiento de su cuenta asociada al DNI: <strong>{usuario.Socio.DNI}</strong>.</p>
+        <div style='background-color: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #2563eb;'>
+            <p style='margin: 5px 0;'><strong>Su Nombre de Usuario:</strong> <span style='color: #0f172a; font-weight: bold;'>{usuario.Username}</span></p>
+            <p style='margin: 5px 0;'><strong>Contraseña Temporal:</strong> <code style='color: #dc2626; font-size: 16px; font-weight: bold;'>{passwordTemporal}</code></p>
+        </div>
+        <p style='color: #475569; font-size: 13px;'>Al ingresar a la plataforma con esta clave provisional, el sistema le solicitará actualizarla obligatoriamente.</p>
+        <hr style='border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;' />
+        <small style='color: #94a3b8;'>Módulo de Seguridad UNIMAS.</small>
+    </div>";
+
+            // Usando tu método nativo validado del backend
+            await emailService.SendEmailAsync(usuario.Email, asunto, cuerpoHtml);
+
+            // 5. Validar inyección del logger o log de auditoría antes de disparar
+            if (_audit != null)
+            {
+                await _audit.RegistrarLog(usuario.IdUsuario, "PASSWORD_RESET_DNI", $"Clave provisional despachada al buzón.", ip);
+            }
+
+            string emailEnmascarado = EnmascararEmail(usuario.Email);
+
+            return Ok(new
+            {
+                Message = "¡Restablecimiento Iniciado!",
+                Detalle = $"Hemos generado un acceso temporal único y lo enviamos al correo electrónico registrado para este documento: {emailEnmascarado}."
+            });
+        }
+        private string EnmascararEmail(string email)
+        {
+            try
+            {
+                var partes = email.Split('@');
+                if (partes[0].Length <= 2) return $"*@{partes[1]}";
+                return $"{partes[0].Substring(0, 1)}*******{partes[0].Substring(partes[0].Length - 1)}@{partes[1]}";
+            }
+            catch { return "su correo registrado"; }
+        }
+
+        private string GenerarPasswordAleatorioTop(int longitud)
+        {
+            const string caracteres = "ABCDEFGHJKLMNOPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789!@*#";
+            var token = new char[longitud];
+            using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+            {
+                byte[] bytes = new byte[longitud];
+                rng.GetBytes(bytes);
+                for (int i = 0; i < longitud; i++)
+                {
+                    token[i] = caracteres[bytes[i] % caracteres.Length];
+                }
+            }
+            return new string(token);
+        }
+        // DTO necesario para el mapeo del request
+        public class RecuperarAccountDTO
+        {
+            public string? Username { get; set; }
+            public string? Email { get; set; }
+            public string Dni { get; set; }
+        }
     }
 }
