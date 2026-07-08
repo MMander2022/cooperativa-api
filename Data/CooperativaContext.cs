@@ -52,6 +52,11 @@ namespace CooperativaApp.Data
         public virtual DbSet<PeriodoRetiro> PeriodosRetiro { get; set; }
         public virtual DbSet<SolicitudRetiro> SolicitudesRetiro { get; set; }
         public virtual DbSet<CuadreCajaSpResponse> CuadreCajaSpResponses { get; set; }
+        public DbSet<TipoGasto> TipoGastos { get; set; }
+        public DbSet<GastosMensuales> GastosMensuales { get; set; }
+        public DbSet<PeriodosRetiroUtilidad> PeriodosRetiroUtilidad { get; set; }
+        public DbSet<UtilidadesProcesadas> UtilidadesProcesadas { get; set; }
+        public DbSet<SolicitudUtilidad> SolicitudesUtilidad { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -119,8 +124,12 @@ namespace CooperativaApp.Data
             // PAGO
             modelBuilder.Entity<Pago>()
                 .Property(p => p.MontoTotal).HasPrecision(18, 2);
-
            
+            //UTILIDAD
+            modelBuilder.Entity<UtilidadesProcesadas>()
+                .Property(u => u.FactorProrrateo)
+                .HasPrecision(18, 6);
+
 
             // MORA
             modelBuilder.Entity<Mora>()

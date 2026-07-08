@@ -3,6 +3,7 @@ using CooperativaApp.Interfaces;
 using CooperativaApp.Models;
 using CooperativaApp.Repositories;
 using CooperativaApp.Services;
+using CooperativaApp.Services.Implementations;
 using CooperativaApp.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -83,6 +84,7 @@ builder.Services.AddScoped<ICajaService, CajaService>();
 builder.Services.AddScoped<IRetiroService, RetiroService>();
 builder.Services.AddApplicationInsightsTelemetry();
 builder.Services.AddScoped<BlobStorageService>();
+builder.Services.AddScoped<IUtilidadService, UtilidadService>();
 builder.Services.AddMemoryCache();
 
 // 🧬 3. CONTROLADORES Y JSON
