@@ -208,6 +208,9 @@ namespace CooperativaApp.Services
             {
                 case "ALEMAN": GenerarAleman(credito); break;
                 case "INTERES_SIMPLE": GenerarInteresSimple(credito); break;
+                case "IUNICA": GenerarIUnica(credito); break;
+                case "INTERES_UNICA": GenerarIUnica(credito); break;
+                    
                 default: GenerarFrances(credito); break;
             }
             await _context.SaveChangesAsync();
@@ -239,6 +242,12 @@ namespace CooperativaApp.Services
                         break;
                     case "INTERES_SIMPLE":
                         GenerarInteresSimple(credito);
+                        break;
+                    case "IUNICA":
+                        GenerarIUnica(credito);
+                        break;
+                    case "INTERES_UNICA":
+                        GenerarIUnica(credito);
                         break;
                     case "FRANCES":
                     default:
@@ -360,7 +369,62 @@ namespace CooperativaApp.Services
                 ));
             }
         }
+        private void GenerarIUnica(Credito credito)
+        {
+            decimal principal = credito.Monto;
+            decimal tasaDirectaMensual = credito.TasaInteres / 100; // 🎯 Directa mensual (ej: 2.5% -> 0.025). ¡Ya no se divide entre 12!
+            int n = credito.PlazoMeses;
 
+            // ── PASO 1: Calcular la masa de interés decreciente "fantasma" ──
+            decimal capitalFijoTeorico = principal / n;
+            decimal saldoIteracion = principal;
+            decimal[] listaInteresesCalculados = new decimal[n];
+            decimal sumaInteresesTotal = 0;
+
+            for (int i = 0; i < n; i++)
+            {
+                decimal interesMes = Math.Round(saldoIteracion * tasaDirectaMensual, 2);
+                listaInteresesCalculados[i] = interesMes;
+                sumaInteresesTotal += interesMes;
+
+                saldoIteracion -= capitalFijoTeorico;
+            }
+
+            // ── PASO 2: Fijar el Crédito Total y la Cuota Fija Mensual Definitiva ──
+            decimal creditoTotalAPagar = Math.Round(principal + sumaInteresesTotal, 2);
+            decimal cuotaFijaMensual = Math.Round(creditoTotalAPagar / n, 2);
+
+            // ── PASO 3: Construcción real del plan con capital inverso y persistencia ──
+            decimal saldoCapitalReal = principal;
+
+            for (int k = 1; k <= n; k++)
+            {
+                decimal interesMes = listaInteresesCalculados[k - 1];
+
+                // 🎯 Regla de negocio solicitada: El capital varía = Cuota Fija - Interés Inicialmente Calculado
+                decimal capitalAjustado = Math.Round(cuotaFijaMensual - interesMes, 2);
+
+                // 🛡️ Blindaje contra redondeo: La última cuota absorbe el saldo restante exacto
+                if (k == n)
+                {
+                    capitalAjustado = Math.Round(saldoCapitalReal, 2);
+                    saldoCapitalReal = 0;
+                }
+                else
+                {
+                    saldoCapitalReal = Math.Round(saldoCapitalReal - capitalAjustado, 2);
+                }
+
+                // Persistimos en la base de datos usando tu método base
+                _context.Cuotas.Add(CrearCuotaBase(
+                    credito.IdCredito,
+                    k,
+                    Math.Abs(capitalAjustado),
+                    Math.Abs(interesMes),
+                    Math.Max(0, saldoCapitalReal)
+                ));
+            }
+        }
         private void GenerarInteresSimple(Credito credito)
         {
             decimal P = credito.Monto;

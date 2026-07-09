@@ -85,6 +85,7 @@ builder.Services.AddScoped<IRetiroService, RetiroService>();
 builder.Services.AddApplicationInsightsTelemetry();
 builder.Services.AddScoped<BlobStorageService>();
 builder.Services.AddScoped<IUtilidadService, UtilidadService>();
+
 builder.Services.AddMemoryCache();
 
 // 🧬 3. CONTROLADORES Y JSON
@@ -116,6 +117,7 @@ builder.Services.AddScoped<ISmsService, SmsService>();
 builder.Services.AddScoped<IWhatsAppService, WhatsAppService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IAporteService, AporteService>();
+builder.Services.AddScoped<ISolicitudUtilidadService, SolicitudUtilidadService>();
 builder.Services.AddEndpointsApiExplorer();
 
 // 💾 4. BASE DE DATOS

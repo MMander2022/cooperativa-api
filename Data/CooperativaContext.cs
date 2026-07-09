@@ -58,6 +58,8 @@ namespace CooperativaApp.Data
         public DbSet<PeriodosRetiroUtilidad> PeriodosRetiroUtilidad { get; set; }
         public virtual DbSet<UtilidadesProcesadas> UtilidadesProcesadas { get; set; }
         public virtual DbSet<UtilidadesConsolidadas> UtilidadesConsolidadas { get; set; }
+        
+        public DbSet<SolicitudUtilidadDesembolsoDetalle> SolicitudUtilidadDesembolsoDetalles { get; set; }
         public DbSet<SolicitudUtilidad> SolicitudesUtilidad { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

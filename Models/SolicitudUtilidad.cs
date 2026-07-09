@@ -1,4 +1,5 @@
-﻿using System;
+﻿// Models/SolicitudUtilidad.cs
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -9,34 +10,18 @@ namespace CooperativaApp.Models
     {
         [Key]
         public int IdSolicitud { get; set; }
-
-        [Required]
         public int IdSocio { get; set; }
-
-        [Required]
         public int IdPeriodoConfig { get; set; }
-
-        [ForeignKey("IdPeriodoConfig")]
-        public PeriodosRetiroUtilidad? PeriodoConfig { get; set; }
-
-        [Required]
-        [Column(TypeName = "decimal(18,2)")]
         public decimal MontoSolicitado { get; set; }
-
-        [Required]
-        [StringLength(20)]
-        public string TipoRetiro { get; set; } = "PARCIAL"; // TOTAL o PARCIAL
-
-        public DateTime FechaSolicitud { get; set; } = DateTime.Now;
-
-        [StringLength(20)]
-        public string Estado { get; set; } = "PENDIENTE"; // PENDIENTE, APROBADO, RECHAZADO
-
-        [StringLength(250)]
-        public string? ComentarioCaja { get; set; }
-
+        public string TipoRetiro { get; set; }
+        public DateTime? FechaSolicitud { get; set; }
+        public string Estado { get; set; }
+        public string ComentarioCaja { get; set; }
         public DateTime? FechaProcesadoCaja { get; set; }
-
         public int? IdUsuarioCaja { get; set; }
+
+        // Propiedad de navegación por si necesitas hacer .Include(s => s.PeriodoConfig)
+        [ForeignKey("IdPeriodoConfig")]
+        public virtual PeriodosRetiroUtilidad PeriodoConfig { get; set; }
     }
 }
