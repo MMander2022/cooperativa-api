@@ -1,5 +1,6 @@
 ﻿using CooperativaApp.DTOS;
 using CooperativaApp.Models;
+using CooperativaDB.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using YourProject.Models;
@@ -55,7 +56,8 @@ namespace CooperativaApp.Data
         public DbSet<TipoGasto> TipoGastos { get; set; }
         public DbSet<GastosMensuales> GastosMensuales { get; set; }
         public DbSet<PeriodosRetiroUtilidad> PeriodosRetiroUtilidad { get; set; }
-        public DbSet<UtilidadesProcesadas> UtilidadesProcesadas { get; set; }
+        public virtual DbSet<UtilidadesProcesadas> UtilidadesProcesadas { get; set; }
+        public virtual DbSet<UtilidadesConsolidadas> UtilidadesConsolidadas { get; set; }
         public DbSet<SolicitudUtilidad> SolicitudesUtilidad { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

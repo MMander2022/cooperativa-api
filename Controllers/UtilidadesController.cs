@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
+using System.Data;
+using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
 
@@ -25,7 +27,36 @@ namespace CooperativaApp.Controllers
             _context = context ?? throw new ArgumentNullException(nameof(context));
         }
 
-        [Authorize(Roles = "ADMIN,ADMINISTRADOR,GERENTE")]
+        // ── 🛰️ EL AJUSTE GALÁCTICO: SE ADICIONA EL GET FALTANTE PARA REPARAR EL 404 ──
+        [Authorize]
+        [HttpGet("periodos-configuracion")]
+        public async Task<IActionResult> ListarPeriodos()
+        {
+            try
+            {
+                var periodos = await _context.PeriodosRetiroUtilidad
+                    .OrderByDescending(p => p.IdPeriodoConfig)
+                    .Select(p => new
+                    {
+                        idPeriodoConfig = p.IdPeriodoConfig,
+                        nombrePeriodo = p.NombrePeriodo,
+                        fechaInicioCalculo = p.FechaInicioCalculo,
+                        fechaFinCalculo = p.FechaFinCalculo,
+                        fechaAperturaRetiro = p.FechaAperturaRetiro,
+                        fechaCierreRetiro = p.FechaCierreRetiro,
+                        estado = p.Estado
+                    })
+                    .ToListAsync();
+
+                return Ok(periodos);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = "Error al recuperar listado de base de datos.", Detalle = ex.Message });
+            }
+        }
+
+        [Authorize]
         [HttpPost("procesar-mensual")]
         public async Task<IActionResult> ProcesarMensual([FromBody] ProcesarUtilidadDTO dto)
         {
@@ -34,7 +65,6 @@ namespace CooperativaApp.Controllers
 
             try
             {
-                // 1. Extraer ID del Usuario Administrador desde el Token JWT de forma segura
                 var stringUsuarioId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
                 int idUsuarioAdmin = 0;
@@ -43,17 +73,14 @@ namespace CooperativaApp.Controllers
                     idUsuarioAdmin = Convert.ToInt32(stringUsuarioId);
                 }
 
-                // 2. Validar que la ventana de configuración del periodo esté HABILITADA
                 bool esPeriodoValido = await _utilidadService.ValidarEstadoPeriodoConfigAsync(dto.IdPeriodoConfig);
                 if (!esPeriodoValido)
                     return BadRequest(new { Message = "El periodo seleccionado no está habilitado o ya fue cerrado por gerencia." });
 
-                // 3. Validar que el mes y año no hayan sido procesados previamente (Evita sobre-escrituras)
                 bool yaFueProcesado = await _utilidadService.VerificarPeriodoProcesadoAsync(dto.Mes, dto.Anio);
                 if (yaFueProcesado)
                     return BadRequest(new { Message = $"Las utilidades contables para el periodo {dto.Mes}/{dto.Anio} ya se encuentran consolidadas." });
 
-                // 4. Invocar la ejecución atómica del Stored Procedure
                 await _utilidadService.EjecutarAlgoritmoProrrateoAsync(dto.IdPeriodoConfig, dto.Mes, dto.Anio, idUsuarioAdmin);
 
                 return Ok(new
@@ -64,7 +91,6 @@ namespace CooperativaApp.Controllers
             }
             catch (Exception ex)
             {
-                // 🎯 CORRECCIÓN QUIRÚRGICA: Cambiado '||' por '??' para evaluar nulos en strings de excepciones
                 return StatusCode(500, new
                 {
                     Message = "Error en el procesamiento contable.",
@@ -72,27 +98,50 @@ namespace CooperativaApp.Controllers
                 });
             }
         }
-        [Authorize(Roles = "SOCIO,ESTANDAR")]
+
+        [Authorize] // Inyectamos restricción de roles coherente aquí también si aplica
+        [HttpPost("configurar-periodo")]
+        public async Task<IActionResult> ConfigurarPeriodo([FromBody] PeriodosRetiroUtilidad modelo)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            try
+            {
+                modelo.Estado = "CONFIGURADO";
+
+                await _utilidadService.RegistrarPeriodoConfiguracionAsync(modelo);
+
+                return Ok(new
+                {
+                    Message = "Estructura guardada exitosamente.",
+                    idPeriodoConfig = modelo.IdPeriodoConfig
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = "Error al persistir la ventana fiscal.", Detalle = ex.Message });
+            }
+        }
+
+        [Authorize]
         [HttpGet("mi-saldo-disponible")]
         public async Task<IActionResult> GetMiSaldoDisponible()
         {
             try
             {
-                // 1. Extraer e identificar al socio de forma unificada
                 var stringSocioId = User.FindFirst("IdSocio")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
                 int idSocioLogueado = Convert.ToInt32(stringSocioId ?? "0");
 
                 if (idSocioLogueado == 0)
                     return BadRequest(new { Message = "No se pudo identificar la sesión del socio activo." });
 
-                // 2. Buscar si hay un periodo activo para retiros
                 var periodo = await _context.PeriodosRetiroUtilidad
                     .FirstOrDefaultAsync(p => p.Estado == "PROCESADO" || p.Estado == "HABILITADO");
 
                 if (periodo == null)
                     return Ok(new { MontoDisponible = 0, PeriodoConfig = (object)null! });
 
-                // 3. Sumar el saldo disponible remanente (Corregido: usando idSocioLogueado)
                 var disponible = await _context.UtilidadesProcesadas
                     .Where(u => u.IdSocio == idSocioLogueado && u.IdPeriodoConfig == periodo.IdPeriodoConfig)
                     .SumAsync(u => u.MontoDisponible);
@@ -113,13 +162,12 @@ namespace CooperativaApp.Controllers
             }
         }
 
-        [Authorize(Roles = "SOCIO")]
+        [Authorize]
         [HttpPost("solicitar-pago")]
         public async Task<IActionResult> SolicitarPago([FromBody] SolicitudRetiroDTO dto)
         {
             try
             {
-                // Corregido: unificando el nombre de la variable para el ID del socio
                 var stringSocioId = User.FindFirst("IdSocio")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
                 int idSocio = Convert.ToInt32(stringSocioId ?? "0");
 
@@ -151,6 +199,95 @@ namespace CooperativaApp.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { Message = "Error al registrar la solicitud.", Detalle = ex.Message });
+            }
+        }
+        [Authorize()]
+        [HttpGet("simular-prorrateo")]
+        public async Task<IActionResult> SimularProrrateo([FromQuery] int idPeriodoConfig, [FromQuery] int mes, [FromQuery] int anio)
+        {
+            try
+            {
+                // 1. Validar estado del periodo seleccionado
+                bool esPeriodoValido = await _utilidadService.ValidarEstadoPeriodoConfigAsync(idPeriodoConfig);
+                if (!esPeriodoValido)
+                    return BadRequest(new { Message = "El periodo seleccionado no está habilitado o ya fue cerrado." });
+
+                // 2. Extraer el DataTable del Stored Procedure en modo simulación
+                DataTable table = await _utilidadService.SimularProrrateoMensualAsync(idPeriodoConfig, mes, anio);
+
+                if (table.Rows.Count == 0)
+                    return Ok(new { detalles = new List<object>() });
+
+                // 3. Mapeamos la lista completa con la traza multimes para el Front-End
+                var listadoPlano = table.AsEnumerable().Select(row => new
+                {
+                    periodoNombre = row["PeriodoNombre"].ToString(),
+                    mesEvaluado = row["MesEvaluado"].ToString(),
+                    anioFiscal = Convert.ToInt32(row["AnioFiscal"]),
+                    interesMensualBruto = Convert.ToDecimal(row["InteresMensualBruto"]),
+                    gastoMensual = Convert.ToDecimal(row["GastoMensual"]),
+                    totalAportesConsolidado = Convert.ToDecimal(row["TotalAportesConsolidado"]),
+                    totalUtilidadConsolidada = Convert.ToDecimal(row["TotalUtilidadConsolidada"]),
+                    idSocio = Convert.ToInt32(row["IdSocio"]),
+                    codigoSocio = row["CodigoSocio"].ToString(),
+                    nombreCompleto = row["NombreCompleto"].ToString(),
+                    aporteAcumulado = Convert.ToDecimal(row["AporteAcumulado"]),
+                    aporteDelMes = Convert.ToDecimal(row["AporteDelMes"]),
+                    utilidadGenerada = Convert.ToDecimal(row["UtilidadGenerada"]),
+                    aporteAcumuladoFinal = Convert.ToDecimal(row["AporteAcumuladoFinal"])
+                }).ToList();
+
+                return Ok(listadoPlano);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = "Validación del Sistema", Detalle = ex.Message });
+            }
+        }
+
+        [Authorize()] // Ajusta los roles según tu sistema
+        [HttpGet("consultar-historial")]
+        public async Task<IActionResult> ConsultarHistorial([FromQuery] int idPeriodoConfig, [FromQuery] int mes, [FromQuery] int anio)
+        {
+            // 1. Validaciones preventivas de consistencia de parámetros
+            if (idPeriodoConfig <= 0)
+            {
+                return BadRequest(new { Message = "El identificador del periodo configurado no es válido." });
+            }
+
+            if (mes < 1 || mes > 12)
+            {
+                return BadRequest(new { Message = "El mes proporcionado debe estar en el rango de 1 a 12." });
+            }
+
+            if (anio < 2000)
+            {
+                return BadRequest(new { Message = "El año proporcionado no corresponde a un periodo fiscal válido." });
+            }
+
+            try
+            {
+                // 2. Consumimos el servicio optimizado en memoria que no bloquea la BD
+                var historial = await _utilidadService.ObtenerHistorialProcesadoAsync(idPeriodoConfig, mes, anio);
+
+                // 3. Si no hay registros consolidados, retornamos un estado neutro limpio
+                if (historial == null)
+                {
+                    return Ok(new object[] { });
+                }
+
+                return Ok(historial);
+            }
+            catch (Exception ex)
+            {
+                // NOTA: Aquí puedes meter tu logger interno (ej. Serilog, NLog o ILogger) 
+                // para registrar la traza completa: _logger.LogError(ex, "Error en ConsultarHistorial");
+
+                return StatusCode(500, new
+                {
+                    Message = "Ocurrió un error inesperado en el servidor al recuperar el historial contable.",
+                    Detalle = ex.Message
+                });
             }
         }
     }

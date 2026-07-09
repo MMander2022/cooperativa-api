@@ -1,8 +1,9 @@
-﻿using System;
+﻿using CooperativaApp.Models;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace CooperativaApp.Models
+namespace CooperativaDB.Models
 {
     [Table("UtilidadesProcesadas")]
     public class UtilidadesProcesadas
@@ -10,37 +11,40 @@ namespace CooperativaApp.Models
         [Key]
         public int IdUtilidad { get; set; }
 
-        [Required]
         public int IdPeriodoConfig { get; set; }
 
-        [ForeignKey("IdPeriodoConfig")]
-        public PeriodosRetiroUtilidad? PeriodoConfig { get; set; }
-
-        [Required]
         public int IdSocio { get; set; }
 
-        [Required]
         public int Anio { get; set; }
 
-        [Required]
         public int Mes { get; set; }
 
-        [Required]
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal AporteAcumuladoCorte { get; set; }
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? AporteAcumuladoCorte { get; set; }
 
-        [Required]
-        [Column(TypeName = "decimal(18,6)")]
-        public decimal FactorProrrateo { get; set; }
+        [Column(TypeName = "decimal(18, 6)")]
+        public decimal? FactorProrrateo { get; set; }
 
-        [Required]
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal MontoUtilidadGenerada { get; set; }
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? MontoUtilidadGenerada { get; set; }
 
-        [Required]
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal MontoDisponible { get; set; }
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? MontoDisponible { get; set; }
 
-        public DateTime FechaProcesado { get; set; } = DateTime.Now;
+        // 💎 Tus nuevos campos oficiales del detalle alineados
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? AporteAcumuladoMes { get; set; }
+
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? UtilidadObtenida { get; set; } // Respetando el typo de tu BD
+
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? InteresMensualRepartir { get; set; }
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? AporteAcumuladoFinal { get; set; } // 💎 Inyectado para solucionar el error de definición
+
+        // Propiedades de navegación (Opcional, por si haces un .Include en LINQ)
+        [ForeignKey("IdPeriodoConfig")]
+        public virtual PeriodosRetiroUtilidad PeriodoConfig { get; set; }
     }
 }
