@@ -46,5 +46,8 @@ namespace CooperativaDB.Models
         // Propiedades de navegación (Opcional, por si haces un .Include en LINQ)
         [ForeignKey("IdPeriodoConfig")]
         public virtual PeriodosRetiroUtilidad PeriodoConfig { get; set; }
+        [ForeignKey("IdSocio")]
+        public virtual Socio Socio { get; set; }
     }
+            
 }

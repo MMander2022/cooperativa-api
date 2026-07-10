@@ -58,5 +58,6 @@ namespace CooperativaApp.Controllers
             if (!r.Success) return BadRequest(new { message = r.Message });
             return Ok(new { message = r.Message });
         }
+
     }
 }

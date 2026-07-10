@@ -143,11 +143,16 @@ namespace CooperativaApp.Services.Implementations
                         .Sum(up => up.UtilidadObtenida) ?? 0m,
                     IdSocio = u.IdSocio,
                     CodigoSocio = u.IdSocio.ToString(),
-                    // 🎯 FIX: Ajustado el acceso al DbSet del núcleo de socios de acuerdo a tu contexto de EF
-                    NombreCompleto = _context.UtilidadesProcesadas
-                        .Include(x => x.PeriodoConfig) // O cámbialo por tu consulta directa cruzada
-                        .Where(x => x.IdSocio == u.IdSocio)
-                        .Select(x => "Socio " + u.IdSocio).FirstOrDefault() ?? "Socio Activo",
+
+                    //// 🎯 FIX: Ajustado el acceso al DbSet del núcleo de socios de acuerdo a tu contexto de EF
+                    //NombreCompleto = _context.UtilidadesProcesadas
+                    //    .Include(x => x.PeriodoConfig) // O cámbialo por tu consulta directa cruzada
+                    //    .Where(x => x.IdSocio == u.IdSocio)
+                    //    .Select(x => "Socio " + u.IdSocio).FirstOrDefault() ?? "Socio Activo",
+                    NombreCompleto = _context.Socios
+                .Where(s => s.IdSocio == u.IdSocio)
+                .Select(s => s.Nombres + " " + s.Apellidos)
+                .FirstOrDefault() ?? "SOCIO NO ENCONTRADO",
                     AporteAcumulado = u.AporteAcumuladoMes ?? 0m,
                     AporteDelMes = 0.00m,
                     UtilidadGenerada = u.UtilidadObtenida ?? 0m,
