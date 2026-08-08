@@ -13,6 +13,9 @@
         public int IdUsuarioRegistro { get; set; }
 
         // 🎯 Este nombre debe coincidir EXACTAMENTE con el .append("ArchivoVoucher", file) del React
+
+        public List<IFormFile>? ArchivosVouchers { get; set; }
         public IFormFile? ArchivoVoucher { get; set; }
+        public string? UrlEvidencia { get; set; }
     }
 }

@@ -11,7 +11,7 @@ namespace CooperativaApp.Models
         public int IdCredito { get; set; }
 
         public int IdSocio { get; set; }
-
+        public int? IdSocioAval { get; set; }
         public decimal Monto { get; set; }
         public decimal? MontoDesembolsado { get; set; }
 

@@ -19,6 +19,8 @@ namespace CooperativaApp.Models
         public int IdEstado { get; set; } // 1: Pendiente, 2: Procesado, 3: Rechazado
         public string? ObservacionesCajero { get; set; }
         public DateTime? FechaProcesamiento { get; set; }
+
+        public bool? EsPrecancelacion { get; set; }
         public int? IdUsuarioCajero { get; set; }
 
         // Navegación Diamante

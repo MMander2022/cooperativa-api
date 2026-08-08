@@ -78,18 +78,26 @@ public class CajaController : ControllerBase
     [HttpGet("saldo-actual")]
     public async Task<IActionResult> GetSaldoCaja()
     {
-        // Sumamos Ingresos ('I') y restamos Egresos ('E') usando la relación con Conceptos
+        var hoy = DateTime.Today;
+
+        // 🎯 FIX: Se valida m.Fecha.HasValue y m.Fecha.Value.Date para evitar error en DateTime?
         var movimientos = await _context.MovimientosCaja
             .Include(m => m.Concepto)
-            .Where(m => m.Fecha.Date == DateTime.Today)
+            .AsNoTracking()
+            .Where(m => m.Fecha.HasValue && m.Fecha.Value.Date == hoy)
             .ToListAsync();
 
-        var ingresos = movimientos.Where(x => x.Concepto.TipoMovimiento == "I").Sum(x => x.Monto);
-        var egresos = movimientos.Where(x => x.Concepto.TipoMovimiento == "E").Sum(x => x.Monto);
+        var ingresos = movimientos
+            .Where(x => x.Concepto != null && x.Concepto.TipoMovimiento == "I")
+            .Sum(x => x.Monto);
+
+        var egresos = movimientos
+            .Where(x => x.Concepto != null && x.Concepto.TipoMovimiento == "E")
+            .Sum(x => x.Monto);
 
         return Ok(new
         {
-            fecha = DateTime.Today,
+            fecha = hoy,
             ingresos,
             egresos,
             saldoEstimado = ingresos - egresos

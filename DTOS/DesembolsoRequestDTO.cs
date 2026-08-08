@@ -12,5 +12,6 @@
         public int IdCaja { get; set; }
         public string Observacion { get; set; }
         public int? IdMedioPago { get; set; } // 🎯 Cambio de string a int
+        public DateTime? FechaPrimerDesembolso { get; set; } // 🎯 NUEVO: Fecha seleccionada de salida
     }
 }

@@ -8,5 +8,7 @@ namespace CooperativaApp.Interfaces
         Task<OperacionResponse> CrearSolicitudSocioAsync(RegistrarSolicitudPagoDTO dto, string perfil, int? socioId);
 
         Task<OperacionResponse> ProcesarSolicitudAsync(int idSolicitud, string accion, string motivo, int usuarioId);
+        Task<SimulaPrecancelacionDto> ObtenerSimulacionPrecancelacionAsync(int idCredito);
+        Task<object?> GetDetalleSolicitudValidacionAsync(int idSolicitud);
     }
 }

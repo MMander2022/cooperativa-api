@@ -6,5 +6,6 @@
         public int IdUsuarioCaja { get; set; }
         public string Comentario { get; set; }
         public List<MedioPagoDesgloseDto> MediosPago { get; set; }
+        public DateTime? FechaDesembolso { get; set; }
     }
 }

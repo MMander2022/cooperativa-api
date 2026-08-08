@@ -4,6 +4,7 @@ using CooperativaApp.DTOs;
 using CooperativaApp.DTOS;
 using CooperativaApp.Interfaces;
 using CooperativaApp.Models;
+using CooperativaApp.Utils;
 using Microsoft.EntityFrameworkCore;
 
 using System;
@@ -54,7 +55,7 @@ namespace CooperativaApp.Services
 
                 aporte.IdConfig = config.IdConfig;
                 aporte.MontoPagado = aporte.CantidadAcciones * config.ValorAccion;
-                aporte.FechaPago = DateTime.Now;
+                aporte.FechaPago = DateTimeUtils.ObtenerHoraPeru(); ;
                 aporte.EstadoPago = 'P';
 
                 // 💎 LIMPIEZA DE NAVEGACIÓN (Evita conflictos de EF Core)

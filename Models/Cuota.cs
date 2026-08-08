@@ -13,6 +13,7 @@ namespace CooperativaApp.Models
         public int IdCredito { get; set; }
 
         public int NumeroCuota { get; set; }
+        public bool EsPrecancelacion { get; set; }
 
         public DateTime FechaVencimiento { get; set; }
 
@@ -20,11 +21,12 @@ namespace CooperativaApp.Models
 
         public decimal Interes { get; set; }
         public decimal SaldoCapital { get; set; }
-
-       public decimal SaldoInteres { get; set; }
+        
+            public decimal SaldoMora { get; set; }
+        public decimal SaldoInteres { get; set; }
 
         public decimal MontoCuota { get; set; }
-
+        public decimal MoraGenerada { get; set; }
         public decimal Saldo { get; set; }
 
         public string? Estado { get; set; }

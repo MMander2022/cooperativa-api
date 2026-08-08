@@ -1,6 +1,7 @@
 ﻿using CooperativaApp.Data;
 using CooperativaApp.DTOs;
 using CooperativaApp.DTOS;
+using CooperativaApp.Utils;
 using CooperativaApp.Interfaces;
 using CooperativaApp.Models;
 using Microsoft.Data.SqlClient;
@@ -33,7 +34,7 @@ namespace CooperativaApp.Services
 
                 // 1. Cambiar estado
                 credito.Estado = "DESEMBOLSADO";
-                credito.FechaDesembolso = DateTime.Now;
+                credito.FechaDesembolso = DateTimeUtils.ObtenerHoraPeru();
                 
                 // 2. Buscar Concepto Maestro para Contabilidad
                 var concepto = await _context.ConceptosOperacion
@@ -43,7 +44,7 @@ namespace CooperativaApp.Services
                 // 3. Crear Asiento Contable (Partida Doble)
                 var asiento = new AsientosContables
                 {
-                    Fecha = DateTime.Now,
+                    Fecha = DateTimeUtils.ObtenerHoraPeru(),
                     Glosa = $"Desembolso Crédito #{idCredito} - Socio: {credito.IdSocio}",
                     Origen = "DESEMBOLSO",
                     IdReferencia = idCredito
@@ -390,7 +391,7 @@ namespace CooperativaApp.Services
             int cuotasPagadas = _context.Cuotas.Count(x => x.Estado == "PAGADO");
             int cuotasPendientes = _context.Cuotas.Count(x => x.Estado == "PENDIENTE");
 
-            int cuotasVencidas = _context.Cuotas.Count(x => x.Estado == "PENDIENTE" && x.FechaVencimiento < DateTime.Now);
+            int cuotasVencidas = _context.Cuotas.Count(x => x.Estado == "PENDIENTE" && x.FechaVencimiento < DateTimeUtils.ObtenerHoraPeru());
 
             decimal totalPendiente = _context.Cuotas
                 .Where(x => x.Estado == "PENDIENTE")
@@ -590,18 +591,19 @@ namespace CooperativaApp.Services
         }
         public async Task<OperacionResponse> RegistrarDesembolsoAsync(DesembolsoRequest request)
         {
-            // Usamos una estrategia de ejecución para asegurar la transacción en SQL
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // 1. Ejecutar SP Maestro y MATERIALIZAR inmediatamente
-                // Usamos ToListAsync() para asegurar que el SP termine su ejecución antes de seguir
+                // 1. Fecha de desembolso capturada de pantalla (o Hoy por defecto)
+                DateTime fechaDesembolsoReal = request.FechaPrimerDesembolso ?? DateTime.Today;
+
+                // 2. Ejecutar SP Maestro
                 var resultado = await _context.Set<OperacionResponse>()
-                    .FromSqlInterpolated($@"EXEC [dbo].[usp_RegistrarDesembolso] 
-                @IdCredito={request.IdCredito}, 
-                @MontoADesembolsar={request.Monto}, 
-                @UsuarioId={request.UsuarioId}, 
-                @IdCaja={request.IdCaja}, 
+                    .FromSqlInterpolated($@"EXEC [dbo].[usp_RegistrarDesembolso]
+                @IdCredito={request.IdCredito},
+                @MontoADesembolsar={request.Monto},
+                @UsuarioId={request.UsuarioId},
+                @IdCaja={request.IdCaja},
                 @Observacion={request.Observacion},
                 @idMediopago={request.IdMedioPago}")
                     .ToListAsync();
@@ -614,21 +616,126 @@ namespace CooperativaApp.Services
                     return response ?? new OperacionResponse(false, "Error desconocido en SP Maestro");
                 }
 
-                // 🛡️ REFUERZO DIAMANTE: Forzamos la actualización de la Cuota 0
-                // Usamos ExecuteSqlRawAsync para evitar cualquier conflicto de parámetros
-                await _context.Database.ExecuteSqlRawAsync(
-                    "EXEC [dbo].[usp_ActualizarCuotaCero] @p0, @p1, @p2",
-                    parameters: new object[] { request.IdCredito, request.Monto, DateTime.Now }
-                );
-
-                // 3. Recargamos la entidad Crédito desde la BD (sin caché) para validar estado real
+                // 3. Consultar entidad Crédito para obtener Tasa y Estado
                 var credito = await _context.Creditos
-                    .AsNoTracking()
                     .FirstOrDefaultAsync(x => x.IdCredito == request.IdCredito);
 
-                // Si el estado cambió a DESEMBOLSADO (por el primer SP), finalizamos cronograma
-                if (credito?.Estado?.ToUpper() == "DESEMBOLSADO")
+                if (credito == null)
                 {
+                    await transaction.RollbackAsync();
+                    return new OperacionResponse(false, "No se encontró la información del crédito.");
+                }
+
+                bool esDesembolsoTotal = (credito.Estado?.ToUpper() == "DESEMBOLSADO" || credito.EstadoCredito?.ToUpper() == "DESEMBOLSADO");
+
+                // 🎯 SCENARIO A: DESEMBOLSO PARCIAL -> GENERAR/ACTUALIZAR CUOTA 0 CON INTERÉS SIMPLE REAL
+                if (!esDesembolsoTotal)
+                {
+                    decimal tasaMensual = (credito.TasaInteres > 0 ? credito.TasaInteres : 0m) / 100m;
+                    decimal interesCuotaCero = Math.Round(request.Monto * tasaMensual, 2); // Ej: 3000 * 5% = S/ 150.00
+
+                    // Fecha vencimiento Cuota 0 = Fecha Desembolso + 1 Mes
+                    DateTime fechaVencCuotaCero = fechaDesembolsoReal.AddMonths(1);
+
+                    // Búsqueda o Creación de la Cuota 0
+                    var cuotaCero = await _context.Cuotas
+                        .FirstOrDefaultAsync(q => q.IdCredito == request.IdCredito && q.NumeroCuota == 0);
+
+                    if (cuotaCero == null)
+                    {
+                        cuotaCero = new Cuota
+                        {
+                            IdCredito = request.IdCredito,
+                            NumeroCuota = 0,
+                            FechaVencimiento = fechaVencCuotaCero,
+                            Capital = 0.00m,
+                            Interes = interesCuotaCero,
+                            MontoCuota = interesCuotaCero,
+                            Saldo = interesCuotaCero,
+                            SaldoCapital = 0.00m,
+                            SaldoInteres = interesCuotaCero,
+                            SaldoMora = 0.00m,
+                            MoraGenerada = 0.00m,
+                            Estado = "PENDIENTE",
+                            EsPrecancelacion = false
+                        };
+                        _context.Cuotas.Add(cuotaCero);
+                    }
+                    else
+                    {
+                        cuotaCero.FechaVencimiento = fechaVencCuotaCero;
+                        cuotaCero.Interes = interesCuotaCero;
+                        cuotaCero.MontoCuota = interesCuotaCero;
+                        cuotaCero.Saldo = interesCuotaCero;
+                        cuotaCero.SaldoInteres = interesCuotaCero;
+                        cuotaCero.Estado = "PENDIENTE";
+                    }
+
+                    // 🎯 DESPLAZAR CUOTAS REGULARES (1..N) A PARTIR DE LA FECHA DE LA CUOTA 0 MANTENIENDO EL DÍA FIJO
+                    var cuotasRegulares = await _context.Cuotas
+                        .Where(q => q.IdCredito == request.IdCredito && q.NumeroCuota > 0)
+                        .OrderBy(q => q.NumeroCuota)
+                        .ToListAsync();
+
+                    if (cuotasRegulares.Any())
+                    {
+                        int diaFijo = cuotasRegulares.First().FechaVencimiento.Day;
+                        DateTime fechaBase = fechaVencCuotaCero.AddMonths(1);
+
+                        foreach (var q in cuotasRegulares)
+                        {
+                            int maxDiasMes = DateTime.DaysInMonth(fechaBase.Year, fechaBase.Month);
+                            int diaAjustado = Math.Min(diaFijo, maxDiasMes);
+                            q.FechaVencimiento = new DateTime(fechaBase.Year, fechaBase.Month, diaAjustado);
+                            fechaBase = fechaBase.AddMonths(1);
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+                }
+                // 🎯 SCENARIO B: DESEMBOLSO TOTAL / COMPLETADO -> ELIMINAR CUOTA 0 Y RECALIBRAR DESDE CUOTA 1
+                else
+                {
+                    // Si existía una Cuota 0 pendiente, se remueve
+                    var cuotaCeroExistente = await _context.Cuotas
+                        .FirstOrDefaultAsync(q => q.IdCredito == request.IdCredito && q.NumeroCuota == 0);
+
+                    if (cuotaCeroExistente != null)
+                    {
+                        int diasParaVencimiento = (cuotaCeroExistente.FechaVencimiento.Date - fechaDesembolsoReal.Date).Days;
+
+                        // 🛡️ REGLA DE 5 DÍAS:
+                        // Si el desembolso final se hace con más de 5 días de anticipación a su vencimiento (ej. diasParaVencimiento >= 5),
+                        // la Cuota 0 SE ELIMINA. Si ya está dentro de los 5 días previos o vencida, SE CONSERVA.
+                        if (diasParaVencimiento >= 5 && (cuotaCeroExistente.Estado ?? "").ToUpper() == "PENDIENTE")
+                        {
+                            _context.Cuotas.Remove(cuotaCeroExistente);
+                        }
+                    }
+
+                    // Recalibración del cronograma normal (1..N) con la FechaPrimerDesembolso
+                    var cuotasNormales = await _context.Cuotas
+                        .Where(q => q.IdCredito == request.IdCredito && q.NumeroCuota > 0)
+                        .OrderBy(q => q.NumeroCuota)
+                        .ToListAsync();
+
+                    if (cuotasNormales.Any())
+                    {
+                        int diaFijo = cuotasNormales.First().FechaVencimiento.Day;
+                        DateTime fechaIteracion = fechaDesembolsoReal.AddMonths(1);
+
+                        foreach (var q in cuotasNormales)
+                        {
+                            int maxDiasMes = DateTime.DaysInMonth(fechaIteracion.Year, fechaIteracion.Month);
+                            int diaAjustado = Math.Min(diaFijo, maxDiasMes);
+                            q.FechaVencimiento = new DateTime(fechaIteracion.Year, fechaIteracion.Month, diaAjustado);
+                            fechaIteracion = fechaIteracion.AddMonths(1);
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+
+                    // SP Finalizar Cronograma
                     await _context.Database.ExecuteSqlRawAsync(
                         "EXEC [dbo].[usp_FinalizarCronograma] @p0",
                         parameters: new object[] { request.IdCredito }
@@ -643,7 +750,7 @@ namespace CooperativaApp.Services
                 if (_context.Database.CurrentTransaction != null)
                     await transaction.RollbackAsync();
 
-                return new OperacionResponse(false, $"Error Diamante: {ex.Message}");
+                return new OperacionResponse(false, $"Error en Desembolso: {ex.Message}");
             }
         }
         public async Task<IEnumerable<CreditoSocioDTO>> ObtenerCreditosPorPerfilAsync(int usuarioId, string perfil, int? socioId)

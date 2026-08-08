@@ -19,5 +19,8 @@ namespace CooperativaApp.Services
         Task<AprobacionResponse> DecidirSolicitudAsync(int solicitudId, DecisionRequestDTO request);
         Task<IEnumerable<SolicitudDetalleDTO>> ListarTodasAsync();
         Task<IEnumerable<SolicitudDetalleDTO>> ObtenerPorSocioAsync(int socioId);
+        // 🎯 NUEVO:
+        Task<object> ObtenerAnalisisRiesgoSocioAsync(int idSocio);
+        Task<object> ValidarSocioAvalAsync(string dni);
     }
 }

@@ -69,43 +69,82 @@ namespace CooperativaApp.Services
                                     ? 100_000_000m
                                     : montoMaximoAutorizado;
 
-            // 🔍 JOIN DIAMANTE: Extraemos 'CalculoCuota' del producto
+            // 🔍 JOIN DIAMANTE: Usando las columnas reales sol.TasaAplicada y sol.PlazoMeses
             var query = await (from sol in _context.Solicitudes
                                join soc in _context.Socios on sol.SocioId equals soc.IdSocio
                                join prod in _context.Productos on sol.ProductoId equals prod.Id
                                where (sol.Estado == "REGISTRADA" || sol.Estado == "OBSERVADA")
                                && sol.MontoSolicitado <= umbralSeguro
-                               orderby sol.FechaCreacion descending
+                               // 🎯 1. ORDENAMIENTO REQUERIDO POR APELLIDO PATERNO
+                               orderby soc.ApellidoPaterno, soc.ApellidoMaterno, soc.Nombres
                                select new
                                {
                                    sol,
                                    soc,
                                    ProductoNombre = prod.Nombre,
-                                   SistemaAmortizacion = prod.CalculoCuota // 🛡️ Captura ALEMAN, FRANCES o INTERES_SIMPLE
+                                   SistemaAmortizacion = prod.CalculoCuota
                                }).ToListAsync();
 
             return query.Select(x => {
-                // 🧮 MOTOR DE CÁLCULO REFERENCIAL (Mantenemos Francés solo como backup)
-                double tea = (double)(x.sol.TasaAplicada > 0 ? x.sol.TasaAplicada : 0) / 100;
-                double tem = Math.Pow(1 + tea, 1.0 / 12.0) - 1;
-                double cuota = 0;
+                decimal monto = x.sol.MontoSolicitado;
+                // 🎯 Usamos la propiedad real de la BD: TasaAplicada
+                decimal tasaPercent = x.sol.TasaAplicada;
+                // 🎯 Usamos la propiedad real de la BD: PlazoMeses
+                int plazo = x.sol.PlazoMeses;
+                string sistema = (x.SistemaAmortizacion ?? "FRANCES").ToUpper().Trim();
 
-                if (tem > 0 && x.sol.PlazoMeses > 0)
+                // 🎯 2. MOTOR DE CÁLCULO DE CUOTA CORREGIDO SEGÚN SISTEMA
+                decimal cuotaCalculada = 0m;
+                decimal tasaDecimal = tasaPercent / 100m;
+
+                if (monto > 0 && plazo > 0)
                 {
-                    cuota = (double)x.sol.MontoSolicitado * (tem / (1 - Math.Pow(1 + tem, -x.sol.PlazoMeses)));
+                    switch (sistema)
+                    {
+                        case "INTERES_UNICA":
+                        case "IUNICA":
+                            // 🧮 Fórmula para Interés Única: (Monto / Plazo) + (Monto * TasaMensual)
+                            cuotaCalculada = (monto / plazo) + (monto * tasaDecimal);
+                            break;
+
+                        case "ALEMAN":
+                            cuotaCalculada = (monto / plazo) + (monto * (tasaDecimal / 12m));
+                            break;
+
+                        case "INTERES_SIMPLE":
+                            decimal intM = monto * (tasaDecimal / 12m);
+                            cuotaCalculada = (plazo == 1) ? (monto + intM) : intM;
+                            break;
+
+                        case "FRANCES":
+                        default:
+                            double i = (double)(tasaDecimal / 12m);
+                            if (i == 0)
+                            {
+                                cuotaCalculada = monto / plazo;
+                            }
+                            else
+                            {
+                                double cDbl = (double)monto * (i * Math.Pow(1 + i, plazo)) / (Math.Pow(1 + i, plazo) - 1);
+                                cuotaCalculada = (decimal)cDbl;
+                            }
+                            break;
+                    }
                 }
 
+                // 🎯 3. INSTANCIACIÓN DEL RECORD POSICIONAL CON ATRIBUTOS DE TU TABLA
                 return new SolicitudPendienteDTO(
                     x.sol.Id,
-                    $"{x.soc.Nombres} {x.soc.ApellidoPaterno} {x.soc.ApellidoMaterno}".Trim(),
-                    x.ProductoNombre,
-                    x.sol.MontoSolicitado,
-                    x.sol.PlazoMeses,
-                    x.sol.TasaAplicada,
-                    (decimal)Math.Round(cuota, 2),
+                    x.soc.IdSocio, // 👈 Inyección de SocioId para la matriz de riesgos en React
+                    $"{x.soc.ApellidoPaterno} {x.soc.ApellidoMaterno} {x.soc.Nombres}".Trim().ToUpper(),
+                    x.ProductoNombre.ToUpper(),
+                    monto,
+                    plazo,
+                    tasaPercent,
+                    Math.Round(cuotaCalculada, 2),
                     x.sol.Estado ?? "REGISTRADA",
                     x.sol.FechaCreacion ?? DateTime.Now,
-                    x.SistemaAmortizacion ?? "FRANCES" // 🚀 Inyección del sistema real
+                    sistema
                 );
             });
         }
@@ -163,20 +202,29 @@ namespace CooperativaApp.Services
         }
         public async Task<AprobacionResponse> DecidirSolicitudAsync(int solicitudId, DecisionRequestDTO dto)
         {
-            // 🛡️ ÚNICA TRANSACCIÓN MAESTRA
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // 1. Ejecutar SP (Asegúrate de que el SP NO tenga su propio Begin/Commit interno si es posible, o que sea compatible)
+                // 1. Ejecutar SP enviando el IdSocioAval
                 var resultadoSP = await _context.Set<AprobacionResponse>()
-                    .FromSqlInterpolated($"EXEC [dbo].[usp_AprobarSolicitudIntegral] @IdSolicitud={solicitudId}, @UsuarioId={dto.UsuarioId}, @Comentario={dto.Comentario}, @Accion={dto.Accion}")
+                    .FromSqlInterpolated($"EXEC [dbo].[usp_AprobarSolicitudIntegral] @IdSolicitud={solicitudId}, @UsuarioId={dto.UsuarioId}, @Comentario={dto.Comentario}, @Accion={dto.Accion}, @IdSocioAval={dto.IdSocioAval}")
                     .ToListAsync();
 
                 var respuesta = resultadoSP.FirstOrDefault() ?? new AprobacionResponse(0, "Error en SP", false);
 
                 if (respuesta.Exito && dto.Accion.ToUpper() == "APROBAR" && respuesta.IdCreditoGenerado > 0)
                 {
-                    // 🚀 Invocamos el generador SIN que este abra otra transacción
+                    // 🎯 Asignar el Aval directamente al crédito generado si el SP no lo hizo
+                    if (dto.IdSocioAval.HasValue && dto.IdSocioAval.Value > 0)
+                    {
+                        var credito = await _context.Creditos.FindAsync(respuesta.IdCreditoGenerado);
+                        if (credito != null)
+                        {
+                            credito.IdSocioAval = dto.IdSocioAval.Value;
+                        }
+                    }
+
+                    // Generar cuotas
                     await GenerarCuotasSinTransaccionAsync(respuesta.IdCreditoGenerado);
                 }
 
@@ -190,7 +238,6 @@ namespace CooperativaApp.Services
                 return new AprobacionResponse(0, $"Error: {ex.Message}", false);
             }
         }
-
         // ⚙️ MÉTODO AUXILIAR SIN TRANSACCIÓN PROPIA
         private async Task GenerarCuotasSinTransaccionAsync(int idCredito)
         {
@@ -552,5 +599,152 @@ namespace CooperativaApp.Services
 
             return query;
         }
+        //*****************************
+        public async Task<object> ObtenerAnalisisRiesgoSocioAsync(int idSocio)
+        {
+            var socio = await _context.Socios
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.IdSocio == idSocio);
+
+            var creditosSocio = await _context.Creditos
+                .Where(c => c.IdSocio == idSocio)
+                .AsNoTracking()
+                .ToListAsync();
+
+            var idsCreditos = creditosSocio.Select(c => c.IdCredito).ToList();
+
+            var cuotasTodas = await _context.Cuotas
+                .Where(q => idsCreditos.Contains(q.IdCredito))
+                .AsNoTracking()
+                .ToListAsync();
+
+            var creditosDetalle = new List<object>();
+            int totalCuotasConMoraGlobal = 0;
+            int creditosConMoraActiva = 0;
+
+            foreach (var c in creditosSocio)
+            {
+                var cuotasCredito = cuotasTodas.Where(q => q.IdCredito == c.IdCredito).ToList();
+
+                int cuotasTotales = cuotasCredito.Count > 0 ? cuotasCredito.Count : c.PlazoMeses;
+                int cuotasPagadas = cuotasCredito.Count(q => (q.Estado ?? "").ToUpper() == "PAGADO");
+
+                // 🎯 EVALUACIÓN DE CUOTAS CON MORA PAGADA O PENDIENTE VENCIDA
+                int cuotasConMoraPasada = cuotasCredito.Count(q => (q.Estado ?? "").ToUpper() == "PAGADO" && (q.MoraGenerada > 0 || q.SaldoMora > 0));
+
+                // Próxima cuota pendiente
+                var proximaCuota = cuotasCredito
+                    .Where(q => (q.Estado ?? "").ToUpper() == "PENDIENTE")
+                    .OrderBy(q => q.FechaVencimiento)
+                    .FirstOrDefault();
+
+                DateTime? fechaProxima = proximaCuota?.FechaVencimiento;
+
+                // 🎯 MORA ACTIVA: Cuota pendiente con fecha menor a la fecha actual
+                bool tieneCuotaVencidaPendiente = cuotasCredito.Any(q => (q.Estado ?? "").ToUpper() == "PENDIENTE" && q.FechaVencimiento.Date < DateTime.Today);
+
+                if (tieneCuotaVencidaPendiente) creditosConMoraActiva++;
+                totalCuotasConMoraGlobal += (cuotasConMoraPasada + (tieneCuotaVencidaPendiente ? 1 : 0));
+
+                decimal capPagado = cuotasCredito.Sum(q => q.Capital - q.SaldoCapital);
+                decimal intPagado = cuotasCredito.Sum(q => q.Interes - q.SaldoInteres);
+                decimal moraPagada = cuotasCredito.Sum(q => q.MoraGenerada - q.SaldoMora);
+
+                decimal saldoInteresCredito = cuotasCredito.Sum(q => q.SaldoInteres);
+                decimal saldoMoraCredito = cuotasCredito.Sum(q => q.SaldoMora);
+                decimal saldoCapitalCredito = cuotasCredito.Sum(q => q.SaldoCapital);
+                // Determinación de calificación de la operación
+                string calificacionOperacion = "EXCELENTE";
+                if (tieneCuotaVencidaPendiente) calificacionOperacion = "EN_MORA";
+                else if (cuotasConMoraPasada > 0) calificacionOperacion = "OBSERVADO";
+
+                string estadoFormateado = (c.EstadoCredito ?? c.Estado ?? "VIGENTE").ToUpper();
+
+                creditosDetalle.Add(new
+                {
+                    idCredito = c.IdCredito,
+                    producto = "CRÉDITO DE CARTERA",
+                    montoOtorgado = c.Monto,
+                    plazoMeses = c.PlazoMeses,
+                    cuotasTotales = cuotasTotales,
+                    cuotasPagadas = cuotasPagadas,
+                    cuotasConMora = cuotasConMoraPasada + (tieneCuotaVencidaPendiente ? 1 : 0),
+                    tieneCuotaVencidaPendiente = tieneCuotaVencidaPendiente,
+                    calificacionOperacion = calificacionOperacion,
+                    saldoCapital = saldoCapitalCredito,
+                    saldoInteres = saldoInteresCredito,
+                    saldoMora = saldoMoraCredito,
+                    capitalPagado = capPagado > 0 ? capPagado : (c.Monto - c.SaldoCapital),
+                    interesPagado = intPagado,
+                    moraPagada = moraPagada,
+                    estadoCredito = estadoFormateado,
+                    fechaDesembolso = c.FechaUltimoDesembolso ?? c.FechaDesembolso,
+                    fechaProximoVencimiento = fechaProxima
+                });
+            }
+
+            var creditosVigentesCount = creditosSocio.Count(x => (x.EstadoCredito ?? x.Estado ?? "").ToUpper() == "VIGENTE" || (x.EstadoCredito ?? x.Estado ?? "").ToUpper() == "DESEMBOLSADO");
+            var creditosCanceladosCount = creditosSocio.Count(x => (x.EstadoCredito ?? x.Estado ?? "").ToUpper() == "CANCELADO");
+            var deudaTotalVigente = creditosSocio.Where(x => (x.EstadoCredito ?? x.Estado ?? "").ToUpper() == "VIGENTE" || (x.EstadoCredito ?? x.Estado ?? "").ToUpper() == "DESEMBOLSADO").Sum(x => x.SaldoCapital);
+
+            // 🎯 CÁLCULO EXACTO DE PUNTUALIDAD HISTÓRICA SOBRE CUOTAS EXIGIBLES Y PAGADAS
+            var cuotasPagadasTotal = cuotasTodas.Where(q => (q.Estado ?? "").ToUpper() == "PAGADO").ToList();
+            var cuotasPagadasPuntuales = cuotasPagadasTotal.Count(q => q.MoraGenerada == 0);
+
+            double scorePuntualidad = 100.0;
+            if (cuotasPagadasTotal.Count > 0)
+            {
+                scorePuntualidad = Math.Round(((double)cuotasPagadasPuntuales / cuotasPagadasTotal.Count) * 100, 1);
+            }
+
+            // Penalización por moras pendientes actuales
+            if (creditosConMoraActiva > 0)
+            {
+                scorePuntualidad = Math.Max(0, scorePuntualidad - (creditosConMoraActiva * 15.0));
+            }
+
+            // 🎯 REGLA DE SUGERENCIA DE DICTAMEN
+            string dictamenSugerido = "APROBAR_DIRECTO";
+            if (creditosConMoraActiva > 0 || totalCuotasConMoraGlobal > 1)
+            {
+                dictamenSugerido = "REQUERIR_AVAL";
+            }
+            if (creditosConMoraActiva >= 2)
+            {
+                dictamenSugerido = "RECHAZAR";
+            }
+
+            return new
+            {
+                idSocio = idSocio,
+                nombreSocio = socio != null ? $"{socio.ApellidoPaterno} {socio.ApellidoMaterno} {socio.Nombres}".Trim().ToUpper() : "SOCIO",
+                creditosVigentesCount = creditosVigentesCount,
+                creditosCanceladosCount = creditosCanceladosCount,
+                deudaTotalVigente = deudaTotalVigente,
+                scorePuntualidad = Math.Round(scorePuntualidad, 1),
+                dictamenSugerido = dictamenSugerido,
+                creditos = creditosDetalle
+            };
+        }
+        public async Task<object> ValidarSocioAvalAsync(string dni)
+        {
+            var socio = await _context.Socios
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.DNI == dni);
+
+            if (socio == null)
+            {
+                return new { exito = false, mensaje = "El DNI ingresado no pertenece a ningún socio registrado." };
+            }
+
+            return new
+            {
+                exito = true,
+                idSocio = socio.IdSocio,
+                nombreCompleto = $"{socio.ApellidoPaterno} {socio.ApellidoMaterno} {socio.Nombres}".Trim().ToUpper(),
+                dni = socio.DNI
+            };
+        }
+
     }
 }

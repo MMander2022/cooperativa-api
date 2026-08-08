@@ -14,12 +14,15 @@ namespace CooperativaApp.Models
         public string TipoMovimiento { get; set; } // "I" para Ingreso, "E" para Egreso
 
         //[ForeignKey("CuentaContableDebe")]
-        public string CuentaContableDebe { get; set; }
+        public string? CuentaContableDebe { get; set; }
        
          public virtual CuentaContable CuentaContableDebeNavigation { get; set; }
        // [ForeignKey("CuentaContableHaber")]
-        public string CuentaContableHaber { get; set; }
+        public string? CuentaContableHaber { get; set; }
         
         public virtual CuentaContable CuentaContableHaberNavigation { get; set; }
+        public bool? GeneraAsiento { get; set; } // 👈 Anulable porque en BD hay NULLs
+
+        public string? Estado { get; set; } // 👈 Anulable porque en BD hay NULLs
     }
 }

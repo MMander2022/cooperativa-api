@@ -3,6 +3,7 @@
     public record DecisionRequestDTO(
          int UsuarioId,
          string Comentario,
-         string Accion
+         string Accion,
+         int? IdSocioAval = null
      );
 }

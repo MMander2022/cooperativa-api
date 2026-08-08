@@ -12,6 +12,7 @@ namespace CooperativaApp.Models
         public int IdSolicitud { get; set; }
         public int IdMedioPago { get; set; }
         public decimal MontoDesembolsado { get; set; }
-        public string ReferenciaOperacion { get; set; }
+        public string? ReferenciaOperacion { get; set; }
+        public DateTime? FechaDesembolso { get; set; }
     }
 }

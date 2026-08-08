@@ -25,6 +25,8 @@ namespace CooperativaApp.Models
 
         [Required]
         public DateTime FechaCierreRetiro { get; set; }
+        // 🎯 AGREGAR ESTA LÍNEA EN TU ENTIDAD C#:
+        public decimal PorcentajeMaximoRetiro { get; set; } = 75.00m;
 
         [StringLength(20)]
         public string Estado { get; set; } = "INACTIVO"; // CONFIGURADO, PROCESADO, HABILITADO, CERRADO

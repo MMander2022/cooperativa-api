@@ -15,10 +15,12 @@ namespace CooperativaApp.Models
         // 💎 Nueva propiedad para la Lupa Diamante
         public DateTime? FechaSolicitud { get; set; }
         public decimal InteresCubierto { get; set; }
+        public decimal? MoraCubierta { get; set; }
+        
         public decimal CapitalCubierto { get; set; }
 
         [ForeignKey("IdSolicitud")]
-        public virtual SolicitudPagoSocio Solicitud { get; set; }
+        public virtual SolicitudPagoSocio? Solicitud { get; set; }
         [ForeignKey("IdCuota")]
         public virtual Cuota? Cuota { get; set; }
     }

@@ -61,6 +61,7 @@ namespace CooperativaApp.Data
         
         public DbSet<SolicitudUtilidadDesembolsoDetalle> SolicitudUtilidadDesembolsoDetalles { get; set; }
         public DbSet<SolicitudUtilidad> SolicitudesUtilidad { get; set; }
+        public DbSet<SimulaPrecancelacionDto> SimulaPrecancelacionDtos { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -286,6 +287,7 @@ namespace CooperativaApp.Data
                 entity.HasKey(e => e.IdConfig);
                 entity.Property(e => e.ValorAccion).HasPrecision(18, 2);
             });
+            modelBuilder.Entity<SimulaPrecancelacionDto>().HasNoKey();
 
             // AportesSocios
             modelBuilder.Entity<AporteSocio>(entity => {

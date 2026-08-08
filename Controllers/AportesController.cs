@@ -2,6 +2,7 @@
 using CooperativaApp.DTOS;
 using CooperativaApp.Interfaces;
 using CooperativaApp.Models;
+using CooperativaApp.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +31,6 @@ namespace CooperativaApp.Controllers
             var idUsuarioToken = User.FindFirst("IdUsuario")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             bool esAdmin = User.IsInRole("Admin") || User.IsInRole("Administrador") || User.IsInRole("Gerente");
 
-            // Mapeamos los datos del formulario a la entidad de negocio
             var aporte = new AporteSocio
             {
                 IdSocio = dto.IdSocio,
@@ -45,14 +45,12 @@ namespace CooperativaApp.Controllers
 
             if (!esAdmin)
             {
-                // Si el socio NO seleccionó a nadie o se seleccionó a sí mismo — usar token
                 if (aporte.IdSocio == 0 || aporte.IdSocio == int.Parse(idSocioToken ?? "0"))
                 {
                     aporte.IdSocio = int.Parse(idSocioToken ?? "0");
                 }
                 else
                 {
-                    // Verificar que el IdSocio seleccionado pertenece al núcleo familiar
                     var socioLogueado = int.Parse(idSocioToken ?? "0");
                     var perteneceAlNucleo = await _context.Familiaridad
                         .AnyAsync(n =>
@@ -65,30 +63,40 @@ namespace CooperativaApp.Controllers
                 }
             }
 
-            // 🚀 SUBIDA AL CONTENEDOR DE AZURE BLOB STORAGE
-            if (dto.ArchivoVoucher != null && dto.ArchivoVoucher.Length > 0)
-            {
-                try
-                {
-                    // Se sube el archivo al contenedor "vouchers" en Azure
-                    string urlAzure = await _blobService.UploadVoucherAsync(dto.ArchivoVoucher);
+            // 🚀 MULTICARGA DE EVIDENCIAS EN AZURE BLOB STORAGE
+            List<string> urlsSubidas = new List<string>();
 
-                    // Se le asigna la URL pública generada a la entidad antes de ir al servicio
-                    aporte.UrlEvidencia = urlAzure;
-                }
-                catch (System.Exception ex)
+            if (dto.ArchivosVouchers != null && dto.ArchivosVouchers.Any())
+            {
+                foreach (var file in dto.ArchivosVouchers)
                 {
-                    return StatusCode(500, new { message = "Error de infraestructura al guardar la imagen en Azure.", detalles = ex.Message });
+                    if (file.Length > 0)
+                    {
+                        string urlAzure = await _blobService.UploadVoucherAsync(file);
+                        if (!string.IsNullOrEmpty(urlAzure)) urlsSubidas.Add(urlAzure);
+                    }
                 }
             }
+            else if (dto.ArchivoVoucher != null && dto.ArchivoVoucher.Length > 0)
+            {
+                string urlAzure = await _blobService.UploadVoucherAsync(dto.ArchivoVoucher);
+                if (!string.IsNullOrEmpty(urlAzure)) urlsSubidas.Add(urlAzure);
+            }
 
-            // Se envía la entidad con la UrlEvidencia ya poblada al servicio de persistencia
+            if (urlsSubidas.Any())
+            {
+                aporte.UrlEvidencia = string.Join(",", urlsSubidas);
+            }
+            else if (!string.IsNullOrEmpty(dto.UrlEvidencia))
+            {
+                aporte.UrlEvidencia = dto.UrlEvidencia;
+            }
+
             var result = await _aporteService.RegistrarAporteAsync(aporte);
             if (!result.Success) return BadRequest(new { message = result.Message });
 
             return Ok(new { message = result.Message, url = aporte.UrlEvidencia });
         }
-
         [HttpGet("configuracion-actual")]
         public async Task<IActionResult> GetConfig()
         {
@@ -282,51 +290,46 @@ namespace CooperativaApp.Controllers
         [HttpGet("pendientes")]
         public async Task<IActionResult> GetPendientes()
         {
-            Console.WriteLine("--------------------------------------------------");
-            Console.WriteLine("🔍 INSPECCIÓN DE RADAR: GetPendientes invocado");
-
             try
             {
-                if (_context == null) throw new Exception("❌ El Contexto de Base de Datos es NULO");
+                if (_context == null) throw new Exception("Contexto de Base de Datos NULO");
 
+                // 🎯 ORDENAMIENTO POR APELLIDO PATERNO ASCENDENTE
                 var lista = await _context.AportesSocios
                     .Include(a => a.Socio)
                     .Include(a => a.MedioPago)
                     .Include(a => a.ConfigAporte)
                     .Where(a => a.EstadoPago == 'P')
+                    .OrderBy(a => a.Socio != null ? a.Socio.ApellidoPaterno : "")
+                    .ThenBy(a => a.Socio != null ? a.Socio.Nombres : "")
+                    .AsNoTracking()
                     .ToListAsync();
 
-                Console.WriteLine($"📊 REGISTROS ENCONTRADOS: {lista.Count}");
-
-                if (lista.Any())
+                var resultado = lista.Select(a => new
                 {
-                    var primero = lista.First();
-                    Console.WriteLine($"🆔 Primer Aporte ID: {primero.IdAporte}");
-                    Console.WriteLine($"👤 Socio Relacionado: {(primero.Socio != null ? "OK" : "NULO 🚩")}");
-                    Console.WriteLine($"⚙️ Config Relacionada: {(primero.ConfigAporte != null ? "OK" : "NULO 🚩")}");
-                }
-
-                var resultado = lista.Select(a => new {
                     IdAporte = a.IdAporte,
-                    SocioNombre = a.Socio != null ? $"{a.Socio.Nombres} {a.Socio.Apellidos}" : "Socio Huérfano",
+                    // Concatenación Nombre Completo con Apellidos
+                    SocioNombre = a.Socio != null
+                        ? $"{a.Socio.ApellidoPaterno} {a.Socio.ApellidoMaterno} {a.Socio.Nombres}".Trim().ToUpper()
+                        : "SOCIO HUÉRFANO",
+                    ApellidoPaterno = a.Socio != null ? a.Socio.ApellidoPaterno : "",
                     a.MontoPagado,
                     a.EstadoPago,
                     periodo = $"{a.MesAportado:00}-{a.AnioAportado}",
                     mesAportado = a.MesAportado,
                     anioAportado = a.AnioAportado,
-                    medioPago = a.MedioPago != null ? a.MedioPago.Nombre : "NO ESPECIFICADO",
+                    medioPago = a.MedioPago != null ? a.MedioPago.Nombre.ToUpper() : "NO ESPECIFICADO",
                     idMedioPago = a.IdMedioPago,
-                    // 🎯 AJUSTE DIAMANTE: Se inyecta la propiedad al payload de salida
-                    urlEvidencia = a.UrlEvidencia
+                    urlEvidencia = a.UrlEvidencia,
+                    // 🎯 NUEVO: FECHA OFICIAL DE REGISTRO EN BD
+                    fechaRegistro = a.FechaPago
                 }).ToList();
 
                 return Ok(resultado);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ ERROR CRÍTICO: {ex.Message}");
-                Console.WriteLine($"📂 STACKTRACE: {ex.StackTrace}");
-                return StatusCode(500, ex.Message);
+                return StatusCode(500, new { message = ex.Message });
             }
         }
 
@@ -422,7 +425,7 @@ namespace CooperativaApp.Controllers
 
                     Monto = aporte.MontoPagado,
 
-                    Fecha = DateTime.Now,
+                    Fecha = DateTimeUtils.ObtenerHoraPeru(),
 
                     IdUsuario = int.Parse(User.FindFirst("IdUsuario")?.Value ?? "0"),
 

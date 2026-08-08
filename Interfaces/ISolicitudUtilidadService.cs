@@ -15,6 +15,7 @@ namespace CooperativaApp.Services.Interfaces
         Task ModificarSolicitudAsync(int idSolicitud, decimal nuevoMonto);
         Task EliminarSolicitudLogicAsync(int idSolicitud);
         Task<IEnumerable<SolicitudUtilidad>> ListarSolicitudesPorEstadoAsync(string estado);
+        Task<IEnumerable<SolicitudPendienteCajaDto>> ListarSolicitudesPendientesOrdenadasAsync();
         Task ProcesarDesembolsoCajaAsync(DesembolsoPayloadDto desembolso);
         Task RechazarSolicitudCajaAsync(int idSolicitud, int idUsuario, string comentario);
     }

@@ -2,6 +2,7 @@
 using CooperativaApp.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace CooperativaApp.Controllers
@@ -28,7 +29,15 @@ namespace CooperativaApp.Controllers
             var pendientes = await _solicitudService.ObtenerPendientesAsync();
             return Ok(pendientes);
         }
+        [HttpGet("detalle-solicitud/{idSolicitud}")]
+        public async Task<IActionResult> GetDetalleSolicitudValidacion(int idSolicitud)
+        {
+            var detalle = await _solicitudService.GetDetalleSolicitudValidacionAsync(idSolicitud);
+            if (detalle == null)
+                return NotFound(new { exito = false, mensaje = "Detalle de solicitud no encontrado." });
 
+            return Ok(detalle);
+        }
         /// <summary>
         /// 🚀 REGISTRO DE SOCIO: Permite que un socio reporte su voucher/operación.
         /// Nivel: Socio / Admin
@@ -69,5 +78,17 @@ namespace CooperativaApp.Controllers
 
             return resultado.Exito ? Ok(resultado) : BadRequest(resultado);
         }
+        [HttpGet("precancelacion-simular/{idCredito}")]
+        public async Task<IActionResult> SimularPrecancelacion(int idCredito)
+        {
+            var simulacion = await _solicitudService.ObtenerSimulacionPrecancelacionAsync(idCredito);
+
+            if (simulacion == null)
+                return NotFound(new { exito = false, mensaje = "Crédito no encontrado o sin cuotas pendientes." });
+
+            return Ok(simulacion);
+        }
+
+
     }
 }

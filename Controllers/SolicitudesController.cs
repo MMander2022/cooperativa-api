@@ -88,6 +88,7 @@ namespace CooperativaApp.Controllers
 
             return BadRequest(new { message = resultado.Mensaje });
         }
+
         [HttpPost("{id}/decidir")]
         public async Task<IActionResult> Decidir(int id, [FromBody] DecisionRequestDTO request)
         {
@@ -139,6 +140,41 @@ namespace CooperativaApp.Controllers
 
         // DTO rápido para el cuerpo del POST
         public record AprobarRequest(int UsuarioId, string? Comentario);
+
+        // 🎯 ENDPOINT: Analista Inteligente de Riesgos
+        [HttpGet("analisis-riesgo-socio/{idSocio}")]
+        public async Task<IActionResult> ObtenerPerfilRiesgoSocio(int idSocio)
+        {
+            try
+            {
+                if (idSocio <= 0)
+                {
+                    return BadRequest(new { message = "El idSocio debe ser un número entero mayor a cero." });
+                }
+
+                var resultado = await _solicitudService.ObtenerAnalisisRiesgoSocioAsync(idSocio);
+                return Ok(resultado);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error en matriz de riesgo", detalles = ex.Message });
+            }
+        }
+
+        // 🎯 ENDPOINT: Validar DNI de Socio Aval
+        [HttpGet("validar-aval-socio/{dni}")]
+        public async Task<IActionResult> ValidarAvalSocio(string dni)
+        {
+            try
+            {
+                var resultado = await _solicitudService.ValidarSocioAvalAsync(dni);
+                return Ok(resultado);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error al validar aval", detalles = ex.Message });
+            }
+        }   
     }
     
 }
