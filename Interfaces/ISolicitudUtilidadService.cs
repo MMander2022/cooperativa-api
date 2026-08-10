@@ -18,5 +18,8 @@ namespace CooperativaApp.Services.Interfaces
         Task<IEnumerable<SolicitudPendienteCajaDto>> ListarSolicitudesPendientesOrdenadasAsync();
         Task ProcesarDesembolsoCajaAsync(DesembolsoPayloadDto desembolso);
         Task RechazarSolicitudCajaAsync(int idSolicitud, int idUsuario, string comentario);
+        // 🎯 NUEVOS MÉTODOS PARA CARGA MASIVA (ADMIN)
+        Task<List<SocioHabilitadoUtilidadDto>> ObtenerSociosHabilitadosPeriodoAsync(int idPeriodoConfig);
+        Task ProcesarSolicitudesMasivasAsync(SolicitudMasivaPayloadDto payload);
     }
 }

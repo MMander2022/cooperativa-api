@@ -371,5 +371,126 @@ namespace CooperativaApp.Services.Implementations
 
             await _context.SaveChangesAsync();
         }
+        public async Task<List<SocioHabilitadoUtilidadDto>> ObtenerSociosHabilitadosPeriodoAsync(int idPeriodoConfig)
+        {
+            // 1. Obtener la configuración del periodo activo
+            var periodo = idPeriodoConfig > 0
+                ? await _context.PeriodosRetiroUtilidad.AsNoTracking().FirstOrDefaultAsync(p => p.IdPeriodoConfig == idPeriodoConfig)
+                : await _context.PeriodosRetiroUtilidad.AsNoTracking().FirstOrDefaultAsync(p => p.Estado == "ACTIVO");
+
+            if (periodo == null)
+            {
+                periodo = await _context.PeriodosRetiroUtilidad.AsNoTracking().OrderByDescending(p => p.IdPeriodoConfig).FirstOrDefaultAsync();
+                if (periodo == null) return new List<SocioHabilitadoUtilidadDto>();
+            }
+
+            int idPeriodoReal = periodo.IdPeriodoConfig;
+            decimal pctPermitido = periodo.PorcentajeMaximoRetiro > 0 ? periodo.PorcentajeMaximoRetiro : 75.00m;
+
+            // 2. Cargar consolidados del periodo
+            var consolidados = await _context.UtilidadesConsolidadas
+                .Where(c => c.IdPeriodoConfig == idPeriodoReal)
+                .AsNoTracking()
+                .ToListAsync();
+
+            // 3. Sumar utilidades dinámicamente aisladas de CADA SOCIO en UtilidadesProcesadas
+            var utilidadesProcesadasGroup = await _context.UtilidadesProcesadas
+                .Where(u => u.IdPeriodoConfig == idPeriodoReal)
+                .GroupBy(u => u.IdSocio)
+                .Select(g => new
+                {
+                    IdSocio = g.Key,
+                    TotalProcesado = g.Sum(x => (x.InteresMensualRepartir ?? x.UtilidadObtenida) ?? 0m)
+                })
+                .AsNoTracking()
+                .ToDictionaryAsync(x => x.IdSocio, x => x.TotalProcesado);
+
+            // 4. Determinar los IDs de todos los socios que registraron utilidad en este periodo
+            var idsSocios = consolidados.Select(c => c.IdSocio)
+                .Union(utilidadesProcesadasGroup.Keys)
+                .Distinct()
+                .ToList();
+
+            if (!idsSocios.Any()) return new List<SocioHabilitadoUtilidadDto>();
+
+            // 5. Cargar datos personales de dichos socios
+            var socios = await _context.Socios
+                .Where(s => idsSocios.Contains(s.IdSocio))
+                .AsNoTracking()
+                .ToListAsync();
+
+            // 6. Cargar solicitudes de retiro acumuladas para descontar del disponible
+            var solicitudesCurso = await _context.SolicitudesUtilidad
+                .Where(s => s.IdPeriodoConfig == idPeriodoReal && s.Estado != "ELIMINADO" && s.Estado != "RECHAZADO")
+                .AsNoTracking()
+                .ToListAsync();
+
+            var resultado = new List<SocioHabilitadoUtilidadDto>();
+
+            // 7. Mapear métricas exclusivas por cada IdSocio
+            foreach (var idSoc in idsSocios)
+            {
+                var soc = socios.FirstOrDefault(s => s.IdSocio == idSoc);
+                if (soc == null) continue;
+
+                var cons = consolidados.FirstOrDefault(c => c.IdSocio == idSoc);
+                decimal totalConsolidado = cons?.TotalUtilidadAcumulada ?? 0m;
+
+                // Fallback: Si el consolidado está en 0.00, toma la suma del IdSocio de UtilidadesProcesadas
+                decimal totalGanado = totalConsolidado > 0
+                    ? totalConsolidado
+                    : (utilidadesProcesadasGroup.TryGetValue(idSoc, out decimal valProc) ? valProc : 0m);
+
+                if (totalGanado <= 0) continue;
+
+                decimal topeMax = Math.Round(totalGanado * (pctPermitido / 100m), 2);
+                decimal solicitado = solicitudesCurso.Where(s => s.IdSocio == idSoc).Sum(s => s.MontoSolicitado);
+                decimal disp = Math.Max(0m, topeMax - solicitado);
+
+                resultado.Add(new SocioHabilitadoUtilidadDto
+                {
+                    IdSocio = soc.IdSocio,
+                    Documento = soc.DNI ?? "",
+                    NombreCompleto = $"{soc.ApellidoPaterno} {soc.ApellidoMaterno} {soc.Nombres}".Trim(),
+                    TotalUtilidadGenerada = totalGanado,
+                    TopeMaximoRetiro = topeMax,
+                    SolicitadoEnCurso = solicitado,
+                    SaldoDisponibleRetiro = disp
+                });
+            }
+
+            return resultado.OrderBy(x => x.NombreCompleto).ToList();
+        }
+        public async Task ProcesarSolicitudesMasivasAsync(SolicitudMasivaPayloadDto payload)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                foreach (var item in payload.Solicitudes)
+                {
+                    if (item.MontoSolicitado <= 0) continue;
+
+                    var sol = new SolicitudUtilidad
+                    {
+                        IdSocio = item.IdSocio,
+                        IdPeriodoConfig = payload.IdPeriodoConfig,
+                        MontoSolicitado = item.MontoSolicitado,
+                        TipoRetiro = "PARCIAL",
+                        Estado = "PENDIENTE",
+                        FechaSolicitud = DateTime.Now
+                    };
+
+                    _context.SolicitudesUtilidad.Add(sol);
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
     }
 }

@@ -426,7 +426,7 @@ namespace CooperativaApp.Controllers
                     Monto = aporte.MontoPagado,
 
                     Fecha = DateTimeUtils.ObtenerHoraPeru(),
-
+                    FechaMovimiento = DateTimeUtils.ObtenerHoraPeru(),
                     IdUsuario = int.Parse(User.FindFirst("IdUsuario")?.Value ?? "0"),
 
                     Estado = "PROCESADO",

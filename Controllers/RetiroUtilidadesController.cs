@@ -1,5 +1,6 @@
 ﻿using CooperativaApp.DTOs;
 using CooperativaApp.DTOS;
+using CooperativaApp.Services.Implementations;
 using CooperativaApp.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using System;
@@ -110,6 +111,40 @@ namespace CooperativaApp.Controllers
             catch (Exception ex)
             {
                 return BadRequest(new { Message = ex.Message });
+            }
+        }
+        // 🎯 1. Obtener lista de socios habilitados para carga masiva (ADMIN)
+        [HttpGet("socios-habilitados/{idPeriodoConfig}")]
+        public async Task<IActionResult> ObtenerSociosHabilitados(int idPeriodoConfig)
+        {
+            try
+            {
+                var resultado = await _service.ObtenerSociosHabilitadosPeriodoAsync(idPeriodoConfig);
+                return Ok(resultado);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { Exito = false, Mensaje = ex.Message });
+            }
+        }
+
+        // 🎯 2. Procesar lote masivo de solicitudes de retiro (ADMIN)
+        [HttpPost("solicitar-masivo")]
+        public async Task<IActionResult> SolicitarMasivo([FromBody] SolicitudMasivaPayloadDto payload)
+        {
+            if (payload == null || payload.Solicitudes == null || !payload.Solicitudes.Any())
+            {
+                return BadRequest(new { Exito = false, Mensaje = "El lote enviado no contiene solicitudes válidas." });
+            }
+
+            try
+            {
+                await _service.ProcesarSolicitudesMasivasAsync(payload);
+                return Ok(new { Exito = true, Mensaje = "Solicitudes masivas registradas correctamente en la bandeja de Tesorería." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { Exito = false, Mensaje = ex.Message });
             }
         }
     }
